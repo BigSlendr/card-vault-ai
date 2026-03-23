@@ -1,4 +1,4 @@
-name = "card-vault-ai-backend"
+name = "card-vault-ai"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 assets = { directory = "docs" }
