@@ -20,98 +20,136 @@ function parseId(pathname: string): number | null {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
+const ALLOWED_METHODS = 'GET, POST, PATCH, DELETE, OPTIONS';
+const ALLOWED_HEADERS = 'Content-Type, Authorization';
+
+function getAllowedOrigin(request: Request, env: Env): string {
+  if (env.CORS_ORIGIN?.trim()) return env.CORS_ORIGIN.trim();
+  const origin = request.headers.get('origin');
+  if (origin?.endsWith('.github.io')) return origin;
+  return '*';
+}
+
+function withCors(response: Response, request: Request, env: Env): Response {
+  const headers = new Headers(response.headers);
+  headers.set('Access-Control-Allow-Origin', getAllowedOrigin(request, env));
+  headers.set('Access-Control-Allow-Methods', ALLOWED_METHODS);
+  headers.set('Access-Control-Allow-Headers', ALLOWED_HEADERS);
+  headers.set('Vary', 'Origin');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(request.url);
     const method = request.method.toUpperCase();
 
     try {
-      if (method === 'GET' && pathname === '/api/health') {
-        return new Response(JSON.stringify({ ok: true, data: { status: 'healthy' } }), {
-          headers: { 'content-type': 'application/json; charset=utf-8' },
-        });
+      if (method === 'OPTIONS') {
+        return withCors(
+          new Response(JSON.stringify({ ok: true, data: { preflight: true } }), {
+            status: 200,
+            headers: { 'content-type': 'application/json; charset=utf-8' },
+          }),
+          request,
+          env,
+        );
       }
 
-      if (method === 'POST' && pathname === '/api/auth/register') return handleRegister(env, request);
-      if (method === 'POST' && pathname === '/api/auth/login') return handleLogin(env, request);
-      if (method === 'POST' && pathname === '/api/auth/logout') return handleLogout(env, request);
-      if (method === 'GET' && pathname === '/api/me') return handleMe(env, request);
+      if (method === 'GET' && pathname === '/api/health') {
+        return withCors(
+          new Response(JSON.stringify({ ok: true, data: { status: 'healthy' } }), {
+          headers: { 'content-type': 'application/json; charset=utf-8' },
+          }),
+          request,
+          env,
+        );
+      }
 
-      if (method === 'GET' && pathname === '/api/cards') return listCards(env, request);
-      if (method === 'POST' && pathname === '/api/cards') return createCard(env, request);
+      if (method === 'POST' && pathname === '/api/auth/register') return withCors(await handleRegister(env, request), request, env);
+      if (method === 'POST' && pathname === '/api/auth/login') return withCors(await handleLogin(env, request), request, env);
+      if (method === 'POST' && pathname === '/api/auth/logout') return withCors(await handleLogout(env, request), request, env);
+      if (method === 'GET' && pathname === '/api/me') return withCors(await handleMe(env, request), request, env);
+
+      if (method === 'GET' && pathname === '/api/cards') return withCors(await listCards(env, request), request, env);
+      if (method === 'POST' && pathname === '/api/cards') return withCors(await createCard(env, request), request, env);
 
       if (pathname.startsWith('/api/cards/')) {
         const id = parseId(pathname);
-        if (!id) return badRequest('Invalid card id');
-        if (method === 'GET') return getCard(env, id);
-        if (method === 'PATCH') return updateCard(env, request, id);
-        if (method === 'DELETE') return deleteCard(env, id);
+        if (!id) return withCors(badRequest('Invalid card id'), request, env);
+        if (method === 'GET') return withCors(await getCard(env, id), request, env);
+        if (method === 'PATCH') return withCors(await updateCard(env, request, id), request, env);
+        if (method === 'DELETE') return withCors(await deleteCard(env, id), request, env);
       }
 
       if (pathname === '/api/collection') {
         const user = await requireAuth(env, request);
-        if (user instanceof Response) return user;
-        if (method === 'GET') return listCollection(env, user);
-        if (method === 'POST') return createCollectionItem(env, request, user);
+        if (user instanceof Response) return withCors(user, request, env);
+        if (method === 'GET') return withCors(await listCollection(env, user), request, env);
+        if (method === 'POST') return withCors(await createCollectionItem(env, request, user), request, env);
       }
 
       if (pathname.startsWith('/api/collection/')) {
         const id = parseId(pathname);
-        if (!id) return badRequest('Invalid collection id');
+        if (!id) return withCors(badRequest('Invalid collection id'), request, env);
         const user = await requireAuth(env, request);
-        if (user instanceof Response) return user;
-        if (method === 'GET') return getCollectionItem(env, user, id);
-        if (method === 'PATCH') return updateCollectionItem(env, request, user, id);
-        if (method === 'DELETE') return deleteCollectionItem(env, user, id);
+        if (user instanceof Response) return withCors(user, request, env);
+        if (method === 'GET') return withCors(await getCollectionItem(env, user, id), request, env);
+        if (method === 'PATCH') return withCors(await updateCollectionItem(env, request, user, id), request, env);
+        if (method === 'DELETE') return withCors(await deleteCollectionItem(env, user, id), request, env);
       }
 
       if (method === 'POST' && pathname === '/api/uploads/direct') {
         const user = await requireAuth(env, request);
-        if (user instanceof Response) return user;
-        return uploadDirect(env, request, user);
+        if (user instanceof Response) return withCors(user, request, env);
+        return withCors(await uploadDirect(env, request, user), request, env);
       }
 
       if (pathname === '/api/releases') {
-        if (method === 'GET') return listReleases(env, request);
-        if (method === 'POST') return createRelease(env, request);
+        if (method === 'GET') return withCors(await listReleases(env, request), request, env);
+        if (method === 'POST') return withCors(await createRelease(env, request), request, env);
       }
 
       if (pathname.startsWith('/api/releases/')) {
         const id = parseId(pathname);
-        if (!id) return badRequest('Invalid release id');
-        if (method === 'GET') return getRelease(env, id);
+        if (!id) return withCors(badRequest('Invalid release id'), request, env);
+        if (method === 'GET') return withCors(await getRelease(env, id), request, env);
       }
 
       if (pathname.startsWith('/api/comps/refresh/')) {
         const id = parseId(pathname);
-        if (!id) return badRequest('Invalid card id');
-        if (method === 'POST') return refreshComps(env, id);
+        if (!id) return withCors(badRequest('Invalid card id'), request, env);
+        if (method === 'POST') return withCors(await refreshComps(env, id), request, env);
       }
 
       if (pathname.startsWith('/api/comps/')) {
         const id = parseId(pathname);
-        if (!id) return badRequest('Invalid card id');
-        if (method === 'GET') return getComps(env, id);
+        if (!id) return withCors(badRequest('Invalid card id'), request, env);
+        if (method === 'GET') return withCors(await getComps(env, id), request, env);
       }
 
       if (method === 'POST' && pathname === '/api/grading/estimate') {
         const user = await requireAuth(env, request);
-        if (user instanceof Response) return user;
-        return estimateGrade(env, request, user);
+        if (user instanceof Response) return withCors(user, request, env);
+        return withCors(await estimateGrade(env, request, user), request, env);
       }
 
       if (pathname.startsWith('/api/grading/')) {
         const id = parseId(pathname);
-        if (!id) return badRequest('Invalid collection item id');
+        if (!id) return withCors(badRequest('Invalid collection item id'), request, env);
         const user = await requireAuth(env, request);
-        if (user instanceof Response) return user;
-        if (method === 'GET') return getLatestGrade(env, id, user);
+        if (user instanceof Response) return withCors(user, request, env);
+        if (method === 'GET') return withCors(await getLatestGrade(env, id, user), request, env);
       }
 
-      return notFound('Route not found');
+      return withCors(notFound('Route not found'), request, env);
     } catch (err) {
       console.error('Unhandled worker error', err);
-      return serverError();
+      return withCors(serverError(), request, env);
     }
   },
 };

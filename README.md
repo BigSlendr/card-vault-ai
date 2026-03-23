@@ -119,6 +119,25 @@ npx wrangler d1 execute <DB_NAME> --file seed/seed.sql
 4. Deploy from GitHub integration or `wrangler deploy`.
 5. Frontend/mobile app can call these JSON endpoints directly.
 
+## GitHub Pages frontend (no build required)
+
+- GitHub Pages entry file is root `index.html`.
+- The page is plain HTML/CSS/JS and renders immediately without any framework build step.
+- Set Worker URL in `index.html` by assigning `window.WORKER_BASE_URL` (or by storing `CARD_VAULT_WORKER_URL` in `localStorage`).
+  - Example: `https://card-vault-ai-backend.<your-subdomain>.workers.dev`
+- Frontend buttons call:
+  - `GET /api/health`
+  - `GET /api/cards`
+  against the configured Worker base URL.
+
+## CORS configuration
+
+- The Worker returns CORS headers on success and error responses, including preflight `OPTIONS`.
+- By default:
+  - Uses `env.CORS_ORIGIN` if configured.
+  - Otherwise reflects `.github.io` request origins.
+  - Falls back to `*` for MVP compatibility.
+
 ## Notes on MVP scope
 
 - Grading output is intentionally labeled **AI Estimated Grade** and is non-official.
