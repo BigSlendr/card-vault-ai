@@ -1,218 +1,83 @@
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import CardTile from '../components/CardTile';
-import { collection, type CollectionItem } from '../lib/api';
+import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import CardTile from '../components/CardTile'
+import { useCollection } from '../lib/hooks'
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function centsToDisplay(cents: number): string {
-  return '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function extractYear(setName: string | null | undefined): number | null {
-  if (!setName) return null;
-  const m = setName.match(/\b(19|20)\d{2}\b/);
-  return m ? Number(m[0]) : null;
-}
-
-type SortKey = 'added' | 'value' | 'year';
-
-function applySort(items: CollectionItem[], key: SortKey): CollectionItem[] {
-  return [...items].sort((a, b) => {
-    if (key === 'value') return (b.estimated_value_cents ?? -1) - (a.estimated_value_cents ?? -1);
-    if (key === 'year') return (extractYear(b.set_name) ?? 0) - (extractYear(a.set_name) ?? 0);
-    return b.id - a.id; // 'added': proxy via id desc
-  });
-}
-
-// ── Stat card ─────────────────────────────────────────────────────────────────
-
-function StatCard({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className="cv-surface" style={{ padding: '10px 18px', borderRadius: 10, minWidth: 110 }}>
-      <p style={{
-        margin: '0 0 2px', fontSize: 10, fontWeight: 700, letterSpacing: '0.6px',
-        textTransform: 'uppercase', color: 'var(--muted)',
-      }}>
-        {label}
-      </p>
-      <p style={{ margin: 0, fontSize: 18, fontWeight: 700, color: accent ? 'var(--secondary)' : 'var(--text)' }}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
-// ── Page ──────────────────────────────────────────────────────────────────────
+const sortOptions = ['Value High→Low', 'Value Low→High', 'Year Newest', 'Date Added'] as const
 
 export default function DashboardPage() {
-  const navigate = useNavigate();
-  const [sport, setSport] = useState('');
-  const [sortKey, setSortKey] = useState<SortKey>('added');
-  const [search, setSearch] = useState('');
+  const { data = [], isLoading } = useCollection(true)
+  const [search, setSearch] = useState('')
+  const [sport, setSport] = useState('All Sports')
+  const [sort, setSort] = useState<(typeof sortOptions)[number]>('Value High→Low')
 
-  const { data: allItems = [], isLoading, isError } = useQuery({
-    queryKey: ['collection'],
-    queryFn: () => collection.list(),
-  });
+  const sports = useMemo(() => {
+    const values = new Set<string>()
+    data.forEach((item) => values.add(item.card?.sport || item.card?.game || 'Other'))
+    return ['All Sports', ...Array.from(values)]
+  }, [data])
 
-  // Confirmed items only (card_id is set once the review queue item is confirmed)
-  const confirmed = useMemo(() => allItems.filter((i) => i.card_id != null), [allItems]);
+  const totals = useMemo(() => {
+    const totalValue = data.reduce((sum, item) => sum + (item.estimated_value_cents || 0), 0)
+    return { count: data.length, totalValue }
+  }, [data])
 
-  // Stats
-  const totalValueCents = confirmed.reduce((s, i) => s + (i.estimated_value_cents ?? 0), 0);
-  const sportCounts = confirmed.reduce<Record<string, number>>((acc, i) => {
-    const g = (i.game ?? 'Unknown').trim();
-    acc[g] = (acc[g] ?? 0) + 1;
-    return acc;
-  }, {});
-  const uniqueSports = Object.keys(sportCounts).sort();
+  const filtered = useMemo(() => {
+    return [...data]
+      .filter((item) => (sport === 'All Sports' ? true : (item.card?.sport || item.card?.game || 'Other') === sport))
+      .filter((item) => {
+        const target = `${item.card?.player_name || ''} ${item.card?.card_name || ''}`.toLowerCase()
+        return target.includes(search.toLowerCase())
+      })
+      .sort((a, b) => {
+        if (sort === 'Value High→Low') return (b.estimated_value_cents || 0) - (a.estimated_value_cents || 0)
+        if (sort === 'Value Low→High') return (a.estimated_value_cents || 0) - (b.estimated_value_cents || 0)
+        if (sort === 'Year Newest') return (b.card?.year || 0) - (a.card?.year || 0)
+        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+      })
+  }, [data, search, sort, sport])
 
-  // Filter → sort
-  const visible = useMemo(() => {
-    let result = confirmed;
-    if (sport) result = result.filter((i) => (i.game ?? 'Unknown').trim() === sport);
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      result = result.filter((i) => (i.card_name ?? '').toLowerCase().includes(q));
-    }
-    return applySort(result, sortKey);
-  }, [confirmed, sport, sortKey, search]);
-
-  const hasFilters = !!sport || !!search.trim();
-
-  if (isLoading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
-        <div className="cv-spinner" />
-      </div>
-    );
-  }
+  if (isLoading) return <div className="glass p-6">Loading vault...</div>
 
   return (
-    <>
-      <div className="cv-page-header">
-        <h1>My Collection</h1>
-        <p>
-          {isError ? 'Failed to load.' : `${confirmed.length} card${confirmed.length !== 1 ? 's' : ''}`}
-          {allItems.length > confirmed.length && (
-            <span style={{ color: 'var(--warn)', marginLeft: 8, fontSize: 12 }}>
-              · {allItems.length - confirmed.length} pending review
-            </span>
-          )}
-        </p>
-      </div>
-
-      {/* Stats bar */}
-      {confirmed.length > 0 && (
-        <div style={{ display: 'flex', gap: 10, marginBottom: 24, flexWrap: 'wrap' }}>
-          <StatCard label="Total Cards" value={String(confirmed.length)} />
-          {totalValueCents > 0 && (
-            <StatCard label="Est. Value" value={centsToDisplay(totalValueCents)} accent />
-          )}
-          {uniqueSports.map((s) => (
-            <StatCard key={s} label={s} value={String(sportCounts[s])} />
-          ))}
+    <div className="space-y-4">
+      <section className="glass p-4">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div>
+            <p className="text-xs text-cv-muted">Total cards</p>
+            <p className="text-2xl font-bold">{totals.count}</p>
+          </div>
+          <div>
+            <p className="text-xs text-cv-muted">Estimated value</p>
+            <p className="text-2xl font-bold">${(totals.totalValue / 100).toFixed(2)}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {sports.slice(1).map((s) => (
+              <span key={s} className="badge">{s}</span>
+            ))}
+          </div>
         </div>
-      )}
+      </section>
 
-      {/* Filter / sort / search */}
-      {confirmed.length > 0 && (
-        <div style={{ display: 'flex', gap: 10, marginBottom: 22, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input
-            type="text"
-            className="cv-input"
-            placeholder="Search player\u2026"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ width: 190, padding: '7px 12px', fontSize: 13 }}
-          />
-
-          {uniqueSports.length > 1 && (
-            <select
-              className="cv-input"
-              value={sport}
-              onChange={(e) => setSport(e.target.value)}
-              style={{ width: 'auto', padding: '7px 12px', fontSize: 13 }}
-            >
-              <option value="">All sports</option>
-              {uniqueSports.map((s) => (
-                <option key={s} value={s}>{s} ({sportCounts[s]})</option>
-              ))}
-            </select>
-          )}
-
-          <select
-            className="cv-input"
-            value={sortKey}
-            onChange={(e) => setSortKey(e.target.value as SortKey)}
-            style={{ width: 'auto', padding: '7px 12px', fontSize: 13 }}
-          >
-            <option value="added">Date Added</option>
-            <option value="value">Est. Value \u2193</option>
-            <option value="year">Year (newest)</option>
-          </select>
-
-          {hasFilters && (
-            <button
-              className="cv-btn cv-btn-ghost"
-              style={{ fontSize: 12, padding: '6px 12px' }}
-              onClick={() => { setSport(''); setSearch(''); }}
-            >
-              Clear filters
-            </button>
-          )}
+      <section className="glass p-4">
+        <div className="grid gap-3 md:grid-cols-3">
+          <input className="input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search player or card" />
+          <select className="input" value={sport} onChange={(e) => setSport(e.target.value)}>{sports.map((s) => <option key={s}>{s}</option>)}</select>
+          <select className="input" value={sort} onChange={(e) => setSort(e.target.value as (typeof sortOptions)[number])}>{sortOptions.map((s) => <option key={s}>{s}</option>)}</select>
         </div>
-      )}
+      </section>
 
-      {/* Error */}
-      {isError && (
-        <p style={{ color: 'var(--danger)', fontSize: 14 }}>Failed to load collection — please refresh.</p>
+      {filtered.length === 0 ? (
+        <section className="glass p-8 text-center">
+          <p className="mb-2 text-lg font-semibold">No cards in your vault yet</p>
+          <p className="mb-4 text-sm text-cv-muted">Upload your first card to get started.</p>
+          <Link className="btn-primary" to="/upload">Upload card</Link>
+        </section>
+      ) : (
+        <section className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+          {filtered.map((item) => <CardTile key={item.id} collectionItem={item} />)}
+        </section>
       )}
-
-      {/* Empty collection */}
-      {!isError && confirmed.length === 0 && (
-        <div className="cv-empty">
-          <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden style={{ margin: '0 auto 12px', display: 'block' }}>
-            <rect x="4" y="8" width="40" height="32" rx="5" stroke="var(--border)" strokeWidth="2" fill="none" />
-            <rect x="4" y="17" width="40" height="8" fill="var(--border)" fillOpacity="0.3" />
-            <path d="M18 32h12" stroke="var(--border)" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-          <h3 style={{ margin: '0 0 4px', color: 'var(--muted)', fontWeight: 600 }}>No cards yet</h3>
-          <p>Upload your first card to get started.</p>
-          <button className="cv-btn cv-btn-primary" style={{ marginTop: 20 }} onClick={() => navigate('/upload')}>
-            Upload a card
-          </button>
-        </div>
-      )}
-
-      {/* No filter results */}
-      {!isError && confirmed.length > 0 && visible.length === 0 && (
-        <div className="cv-empty" style={{ padding: '40px 24px' }}>
-          <p style={{ color: 'var(--muted)', fontSize: 14, margin: 0 }}>No cards match your filters.</p>
-          <button
-            className="cv-btn cv-btn-ghost"
-            style={{ marginTop: 14, fontSize: 13 }}
-            onClick={() => { setSport(''); setSearch(''); }}
-          >
-            Clear filters
-          </button>
-        </div>
-      )}
-
-      {/* Card grid */}
-      {visible.length > 0 && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(168px, 1fr))',
-          gap: 16,
-        }}>
-          {visible.map((item) => (
-            <CardTile key={item.id} item={item} />
-          ))}
-        </div>
-      )}
-    </>
-  );
+    </div>
+  )
 }

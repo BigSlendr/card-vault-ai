@@ -1,13 +1,17 @@
-import { Navigate, Outlet } from 'react-router-dom'
-import { useAuth } from '../hooks/useAuth'
+import type { ReactNode } from 'react'
+import { Navigate } from 'react-router-dom'
+import { LoaderCircle } from 'lucide-react'
+import { useAuth } from '../lib/hooks'
 
-export default function ProtectedRoute() {
-  const { user, isLoading } = useAuth()
+type Props = { children: ReactNode }
+
+export default function ProtectedRoute({ children }: Props) {
+  const { data: user, isLoading } = useAuth()
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen" style={{ background: 'var(--bg)' }}>
-        <div className="cv-spinner" />
+      <div className="flex min-h-screen items-center justify-center">
+        <LoaderCircle className="h-8 w-8 animate-spin text-cv-secondary" />
       </div>
     )
   }
@@ -16,5 +20,5 @@ export default function ProtectedRoute() {
     return <Navigate to="/login" replace />
   }
 
-  return <Outlet />
+  return <>{children}</>
 }

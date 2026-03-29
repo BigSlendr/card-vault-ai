@@ -11,19 +11,48 @@ import UploadPage from './pages/UploadPage'
 export default function App() {
   return (
     <Routes>
-      <Route path="/login"    element={<LoginPage />} />
+      <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
-
-      {/* All protected routes share the Layout (topbar + outlet) */}
-      <Route element={<ProtectedRoute />}>
-        <Route element={<Layout />}>
-          <Route path="/"         element={<DashboardPage />} />
-          <Route path="/upload"   element={<UploadPage />} />
-          <Route path="/review"   element={<ReviewQueuePage />} />
-          <Route path="/card/:id" element={<CardDetailPage />} />
-        </Route>
-      </Route>
-
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <DashboardPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/upload"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <UploadPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/review"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <ReviewQueuePage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/card/:id"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <CardDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
