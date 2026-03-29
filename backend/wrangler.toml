@@ -4,12 +4,12 @@ compatibility_date = "2025-01-01"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "card-vault-ai"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_name = "card-vault-db"
+database_id = "cardvaultdb"
 
 [[r2_buckets]]
 binding = "BUCKET"
-bucket_name = "card-vault-ai-images"
+bucket_name = "varimg"
 
 [vars]
 CORS_ORIGIN = "https://card-vault-ai.pages.dev"
