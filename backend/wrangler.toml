@@ -5,7 +5,7 @@ compatibility_date = "2025-01-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "card-vault-db"
-database_id = "cardvaultdb"
+database_id = "ed48e805-d198-4f01-9d09-f45649ad4f9f"
 
 [[r2_buckets]]
 binding = "BUCKET"
