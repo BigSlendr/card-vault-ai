@@ -1,0 +1,101 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+# Cancel in-progress deploys when a newer push arrives
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Job 1: Build frontend ────────────────────────────────────────────────────
+  build:
+    name: Build frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build --workspace=frontend
+        env:
+          # Set the production API URL to your deployed Worker.
+          # Override in GitHub repo → Settings → Secrets and variables → Actions → Variables.
+          VITE_API_URL: ${{ vars.VITE_API_URL || '' }}
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 1
+
+  # ── Job 2: Deploy frontend to Cloudflare Pages ────────────────────────────────
+  deploy-pages:
+    name: Deploy frontend → Cloudflare Pages
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Deploy to Cloudflare Pages
+        run: |
+          npx wrangler@latest pages deploy frontend/dist \
+            --project-name=card-vault-ai \
+            --branch=main \
+            --commit-hash=${{ github.sha }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # ── Job 3: Deploy backend Worker ─────────────────────────────────────────────
+  deploy-worker:
+    name: Deploy backend → Cloudflare Workers
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download dist artifact
+        # The Worker bundles the frontend via assets = { directory = "../frontend/dist" }
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Set ANTHROPIC_API_KEY secret
+        run: echo "$ANTHROPIC_API_KEY" | npx wrangler@latest secret put ANTHROPIC_API_KEY --name card-vault-ai
+        working-directory: backend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Deploy Worker
+        run: npm run deploy --workspace=backend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

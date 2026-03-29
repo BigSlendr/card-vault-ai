@@ -1,151 +1,193 @@
-# Card Vault AI Backend MVP (Cloudflare Workers + D1 + R2)
+# CardVault AI
 
-Production-minded MVP backend foundation for a mobile-first trading card collector app.
+A mobile-first sports and trading card collection manager. Upload card photos, let Claude Vision identify them, review AI suggestions, and track eBay market prices — all in one place.
 
-## What this backend includes
+**Stack:** React + Vite (frontend) · Cloudflare Workers + D1 + R2 (backend) · Claude claude-sonnet-4-5 Vision (card identification) · eBay HTML scraping (comps)
 
-- Cloudflare Worker API routing with JSON responses.
-- D1-backed auth/session foundation with hashed passwords.
-- Card catalog CRUD.
-- User collection CRUD.
-- R2 direct image upload endpoint for front/back card photos.
-- Sales comps architecture with a mock provider and refresh flow.
-- Release calendar endpoints with filter support.
-- Deterministic placeholder **AI Estimated Grade** endpoint and persistence.
-- SQL migration and seed files.
+---
 
-## Files created
+## Local dev setup
 
-- `src/index.ts` – Worker entry, route matching, auth checks.
-- `src/types.ts` – environment and model types.
-- `src/lib/json.ts` – API response helpers.
-- `src/lib/db.ts` – D1 query helpers.
-- `src/lib/validation.ts` – body/field validation helpers.
-- `src/lib/auth.ts` – register/login/logout/session helpers.
-- `src/lib/r2.ts` – upload key + image validation + R2 helpers.
-- `src/lib/comps.ts` – comps provider abstraction + mock provider.
-- `src/lib/grading.ts` – deterministic grading estimate generator.
-- `src/routes/*.ts` – route handlers by feature.
-- `migrations/0001_init.sql` – database schema + indexes.
-- `seed/seed.sql` – cards, releases, and comps seed records.
-
-## Required Cloudflare bindings
-
-The Worker expects these binding names exactly:
-
-- D1: `DB`
-- R2: `BUCKET`
-
-In Cloudflare dashboard (or `wrangler.toml`) ensure your Worker has these bindings attached.
-
-## API routes
-
-### Health
-- `GET /api/health`
-
-### Auth
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
-- `GET /api/me`
-
-### Cards
-- `GET /api/cards`
-- `POST /api/cards`
-- `GET /api/cards/:id`
-- `PATCH /api/cards/:id`
-- `DELETE /api/cards/:id`
-
-### Collection (auth required)
-- `GET /api/collection`
-- `POST /api/collection`
-- `GET /api/collection/:id`
-- `PATCH /api/collection/:id`
-- `DELETE /api/collection/:id`
-
-### Uploads (auth required)
-- `POST /api/uploads/direct`
-  - multipart form-data fields:
-    - `file`: image file (jpeg/png/webp)
-    - `collectionItemId`: number
-    - `side`: `front` or `back`
-
-### Releases
-- `GET /api/releases`
-  - optional query params: `game`, `type`, `from`, `to`
-- `POST /api/releases`
-- `GET /api/releases/:id`
-
-### Sales comps
-- `GET /api/comps/:cardId`
-- `POST /api/comps/refresh/:cardId`
-
-### Grading estimate (auth required)
-- `POST /api/grading/estimate`
-- `GET /api/grading/:collectionItemId`
-
-## Response conventions
-
-Success:
-
-```json
-{ "ok": true, "data": {} }
-```
-
-Error:
-
-```json
-{ "ok": false, "error": "message" }
-```
-
-## D1 setup and seeding (Cloudflare dashboard workflow)
-
-1. Open your D1 database in Cloudflare dashboard.
-2. Run SQL from `migrations/0001_init.sql`.
-3. (Optional) Run `seed/seed.sql` for sample cards/releases/comps.
-
-Using Wrangler CLI, equivalent commands are:
+### 1. Clone and install
 
 ```bash
-npx wrangler d1 execute <DB_NAME> --file migrations/0001_init.sql
-npx wrangler d1 execute <DB_NAME> --file seed/seed.sql
+git clone https://github.com/your-org/card-vault-ai.git
+cd card-vault-ai
+npm install          # installs all workspace dependencies
 ```
 
-## GitHub + Cloudflare workflow notes
+### 2. Configure environment
 
-1. Push this repository to GitHub.
-2. Connect GitHub repo to Cloudflare Workers.
-3. Configure Worker bindings (`DB`, `BUCKET`) in Cloudflare.
-4. Deploy from GitHub integration or `wrangler deploy`.
-5. Frontend/mobile app can call these JSON endpoints directly.
+```bash
+cp frontend/.env.example frontend/.env
+```
 
-### Worker deploy configuration (important)
+Edit `frontend/.env`:
 
-- Worker entry file: `src/index.ts` (configured via `main` in `wrangler.toml`).
-- Static asset directory for Worker deploys: `docs/` (configured via `assets.directory` in `wrangler.toml`).
-- Do **not** use repository root (`.`) as Worker assets, because it can accidentally upload non-public files (for example `node_modules`) and exceed Cloudflare's Worker asset limits.
+```
+VITE_API_URL=http://localhost:8787
+```
 
-## GitHub Pages frontend (no build required)
+For the backend, create `backend/.dev.vars` (gitignored):
 
-- GitHub Pages entry file is `docs/index.html`.
-- The page is plain HTML/CSS/JS and renders immediately without any framework build step.
-- Set Worker URL in `docs/index.html` by assigning `window.WORKER_BASE_URL` (or by storing `CARD_VAULT_WORKER_URL` in `localStorage`).
-  - Example: `https://card-vault-ai-backend.<your-subdomain>.workers.dev`
-- Frontend buttons call:
-  - `GET /api/health`
-  - `GET /api/cards`
-  against the configured Worker base URL.
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
 
-## CORS configuration
+### 3. Apply database migrations
 
-- The Worker returns CORS headers on success and error responses, including preflight `OPTIONS`.
-- By default:
-  - Uses `env.CORS_ORIGIN` if configured.
-  - Otherwise reflects `.github.io` request origins.
-  - Falls back to `*` for MVP compatibility.
+```bash
+# Local D1 database (wrangler creates it automatically on first run)
+cd backend
+npx wrangler d1 execute card-vault-ai --local --file=migrations/0001_init.sql
+npx wrangler d1 execute card-vault-ai --local --file=migrations/0002_vision.sql
+```
 
-## Notes on MVP scope
+### 4. Run both servers
 
-- Grading output is intentionally labeled **AI Estimated Grade** and is non-official.
-- Mock sales comps provider is intentionally used first for deterministic testing.
-- Comments in the code identify where future marketplace, catalog, OAuth, and CV/ML integrations should be added.
+```bash
+# From the repo root — starts backend (port 8787) and frontend (port 5173) concurrently
+npm run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173).
+
+---
+
+## Cloudflare setup checklist
+
+Before deploying for the first time, complete these steps once:
+
+### D1 database
+
+```bash
+cd backend
+npx wrangler d1 create card-vault-ai
+```
+
+Copy the printed `database_id` into `backend/wrangler.toml`:
+
+```toml
+[[d1_databases]]
+binding      = "DB"
+database_name = "card-vault-ai"
+database_id  = "paste-your-id-here"
+```
+
+Apply migrations to the remote database:
+
+```bash
+npx wrangler d1 execute card-vault-ai --remote --file=migrations/0001_init.sql
+npx wrangler d1 execute card-vault-ai --remote --file=migrations/0002_vision.sql
+```
+
+### R2 bucket
+
+```bash
+npx wrangler r2 bucket create card-vault-ai-images
+```
+
+Confirm the bucket name matches `wrangler.toml`:
+
+```toml
+[[r2_buckets]]
+binding     = "BUCKET"
+bucket_name = "card-vault-ai-images"
+```
+
+### Secrets
+
+```bash
+npx wrangler secret put ANTHROPIC_API_KEY
+# paste your Anthropic API key when prompted
+```
+
+### Cloudflare Pages project
+
+Create the project once in the dashboard or via CLI:
+
+```bash
+npx wrangler pages project create card-vault-ai
+```
+
+Update `CORS_ORIGIN` in `wrangler.toml` to your Pages URL:
+
+```toml
+[vars]
+CORS_ORIGIN = "https://card-vault-ai.pages.dev"
+```
+
+### GitHub Actions secrets
+
+Add these in your repo → **Settings → Secrets and variables → Actions**:
+
+| Secret | Value |
+|--------|-------|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token with Workers + Pages + D1 + R2 edit permissions |
+| `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account ID |
+| `ANTHROPIC_API_KEY` | Your Anthropic API key |
+
+Optionally add a **variable** (not secret):
+
+| Variable | Value |
+|----------|-------|
+| `VITE_API_URL` | Your deployed Worker URL, e.g. `https://card-vault-ai.your-subdomain.workers.dev` |
+
+---
+
+## Environment variables reference
+
+### Frontend (`frontend/.env`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VITE_API_URL` | `http://localhost:8787` | Base URL for API calls. Set to the Worker URL in production. Leave empty to use the Vite dev proxy (`/api → localhost:8787`). |
+
+### Backend (`backend/.dev.vars` in dev, Wrangler secrets in prod)
+
+| Variable | Where | Description |
+|----------|-------|-------------|
+| `ANTHROPIC_API_KEY` | Secret | Anthropic API key used by Claude Vision for card identification. |
+| `CORS_ORIGIN` | `wrangler.toml [vars]` | Allowed frontend origin for CORS. Set to your Pages URL in production. |
+
+### Wrangler bindings (`backend/wrangler.toml`)
+
+| Binding | Type | Description |
+|---------|------|-------------|
+| `DB` | D1 | SQLite database — users, cards, collection items, comps, grading results. |
+| `BUCKET` | R2 | Object storage — card images uploaded via the upload flow. |
+
+---
+
+## Project structure
+
+```
+card-vault-ai/
+├── backend/                  Cloudflare Worker
+│   ├── migrations/           SQL schema files
+│   ├── src/
+│   │   ├── index.ts          Request router
+│   │   ├── lib/              auth, db, comps, vision, grading helpers
+│   │   └── routes/           auth, cards, collection, comps, grading, uploads, vision
+│   └── wrangler.toml
+├── frontend/                 Vite + React SPA
+│   ├── public/               Static assets + _redirects
+│   └── src/
+│       ├── components/       CardTile, Layout, ProtectedRoute
+│       ├── hooks/            useAuth
+│       ├── lib/api.ts        Typed axios client
+│       └── pages/            Dashboard, Upload, Review, CardDetail, Login, Register
+└── .github/workflows/        CI/CD deploy pipeline
+```
+
+---
+
+## Key features
+
+| Feature | Implementation |
+|---------|---------------|
+| **Card identification** | Claude claude-sonnet-4-5 Vision via Anthropic Messages API — player, year, set, card number, sport, variation, condition notes |
+| **Review queue** | Pending identifications stored in D1; user confirms/edits AI suggestions before cards enter collection |
+| **eBay comps** | HTML scraping of sold + active listings; 24 h cache per card; `GET /api/comps/search?q=` for pre-confirmed items |
+| **AI grading** | Claude analyzes centering, corners, edges, surface; returns 0–10 scores with grade range estimate |
+| **Auth** | Session-based (cookie) auth with D1-backed sessions; bcrypt-style password hashing |

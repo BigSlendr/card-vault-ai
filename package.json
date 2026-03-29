@@ -1,16 +1,17 @@
 {
-  "name": "card-vault-ai-backend",
-  "version": "0.1.0",
+  "name": "card-vault-ai",
+  "version": "1.0.0",
   "private": true,
-  "type": "module",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\""
   },
   "devDependencies": {
-    "typescript": "^5.8.2",
-    "wrangler": "^4.10.0",
-    "@cloudflare/workers-types": "^4.20250327.0"
+    "concurrently": "^9.0.0"
   }
 }

@@ -15,7 +15,36 @@ interface CollectionItem {
   back_image_url: string | null;
 }
 
-export async function listCollection(env: Env, user: User): Promise<Response> {
+export async function listCollection(env: Env, user: User, request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const unconfirmed = url.searchParams.get('unconfirmed') === '1';
+
+  if (unconfirmed) {
+    // Return only items that have an unconfirmed pending identification (latest one per item)
+    const rows = await queryAll<Record<string, unknown>>(
+      env.DB,
+      `SELECT ci.*, c.game, c.set_name, c.card_name, c.card_number, c.rarity,
+              pi.id as pending_id, pi.suggestions
+       FROM collection_items ci
+       LEFT JOIN cards c ON ci.card_id = c.id
+       JOIN (
+         SELECT collection_item_id, MAX(id) as id
+         FROM pending_identifications
+         WHERE confirmed = 0
+         GROUP BY collection_item_id
+       ) latest ON latest.collection_item_id = ci.id
+       JOIN pending_identifications pi ON pi.id = latest.id
+       WHERE ci.user_id = ?
+       ORDER BY ci.created_at DESC`,
+      [user.id],
+    );
+    const parsed = rows.map((r) => ({
+      ...r,
+      suggestions: r.suggestions ? JSON.parse(r.suggestions as string) : null,
+    }));
+    return ok(parsed);
+  }
+
   const rows = await queryAll(
     env.DB,
     `SELECT ci.*, c.game, c.set_name, c.card_name, c.card_number, c.rarity

@@ -10,10 +10,11 @@ import {
   listCollection,
   updateCollectionItem,
 } from './routes/collection';
-import { getComps, refreshComps } from './routes/comps';
+import { getComps, refreshComps, searchComps } from './routes/comps';
 import { estimateGrade, getLatestGrade } from './routes/grading';
 import { createRelease, getRelease, listReleases } from './routes/releases';
 import { uploadDirect } from './routes/uploads';
+import { confirmIdentification, identifyCollectionItem } from './routes/vision';
 
 function parseId(pathname: string): number | null {
   const id = Number(pathname.split('/').pop());
@@ -89,7 +90,7 @@ export default {
       if (pathname === '/api/collection') {
         const user = await requireAuth(env, request);
         if (user instanceof Response) return withCors(user, request, env);
-        if (method === 'GET') return withCors(await listCollection(env, user), request, env);
+        if (method === 'GET') return withCors(await listCollection(env, user, request), request, env);
         if (method === 'POST') return withCors(await createCollectionItem(env, request, user), request, env);
       }
 
@@ -120,6 +121,10 @@ export default {
         if (method === 'GET') return withCors(await getRelease(env, id), request, env);
       }
 
+      if (method === 'GET' && pathname === '/api/comps/search') {
+        return withCors(await searchComps(env, request), request, env);
+      }
+
       if (pathname.startsWith('/api/comps/refresh/')) {
         const id = parseId(pathname);
         if (!id) return withCors(badRequest('Invalid card id'), request, env);
@@ -144,6 +149,20 @@ export default {
         const user = await requireAuth(env, request);
         if (user instanceof Response) return withCors(user, request, env);
         if (method === 'GET') return withCors(await getLatestGrade(env, id, user), request, env);
+      }
+
+      if (method === 'POST' && pathname === '/api/vision/identify') {
+        const user = await requireAuth(env, request);
+        if (user instanceof Response) return withCors(user, request, env);
+        return withCors(await identifyCollectionItem(env, request, user), request, env);
+      }
+
+      if (method === 'POST' && pathname.startsWith('/api/vision/confirm/')) {
+        const id = parseId(pathname);
+        if (!id) return withCors(badRequest('Invalid collection item id'), request, env);
+        const user = await requireAuth(env, request);
+        if (user instanceof Response) return withCors(user, request, env);
+        return withCors(await confirmIdentification(env, request, user, id), request, env);
       }
 
       return withCors(notFound('Route not found'), request, env);

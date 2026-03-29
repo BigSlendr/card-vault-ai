@@ -2,6 +2,7 @@ export interface Env {
   DB: D1Database;
   BUCKET: R2Bucket;
   CORS_ORIGIN?: string;
+  ANTHROPIC_API_KEY: string;
 }
 
 export interface User {
