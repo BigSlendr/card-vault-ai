@@ -101,3 +101,16 @@ npx wrangler pages deploy dist --project-name=card-vault-ai
 - **Multi-user** — each user has a private vault, session-based auth with 30-day cookies
 
 ---
+
+## GitHub Pages deployment (frontend only)
+
+This repository deploys only the Vite frontend to GitHub Pages from `frontend/dist` using the workflow in `.github/workflows/deploy.yml`.
+
+### Required repository settings
+
+1. Open **GitHub → Settings → Pages**.
+2. Under **Build and deployment**, set **Source** to **Deploy from a branch**.
+3. Set **Branch** to **`gh-pages`** and folder to **`/ (root)`**.
+4. Save.
+
+The workflow builds `frontend` and publishes `frontend/dist` to the `gh-pages` branch. Since `index.html` is emitted at the root of `frontend/dist`, GitHub Pages serves the app instead of repository markdown files.
