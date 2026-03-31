@@ -2,7 +2,8 @@ export interface Env {
   DB: D1Database;
   BUCKET: R2Bucket;
   CORS_ORIGIN?: string;
-  ANTHROPIC_API_KEY: string;
+  ANTHROPIC_API_KEY?: string;
+  OPENAI_API_KEY:string;
   EBAY_CLIENT_ID?: string;
   EBAY_CLIENT_SECRET?: string;
 }
