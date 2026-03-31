@@ -15,6 +15,7 @@ import { estimateGrade, getLatestGrade } from './routes/grading';
 import { createRelease, getRelease, listReleases } from './routes/releases';
 import { uploadDirect } from './routes/uploads';
 import { confirmIdentification, identifyCollectionItem } from './routes/vision';
+import { handleSheetScan } from './routes/scan';
 
 function parseId(pathname: string): number | null {
   const id = Number(pathname.split('/').pop());
@@ -152,6 +153,12 @@ export default {
         const user = await requireAuth(env, request);
         if (user instanceof Response) return withCors(user, request, env);
         if (method === 'GET') return withCors(await getLatestGrade(env, id, user), request, env);
+      }
+
+      if (method === 'POST' && pathname === '/api/scan/sheet') {
+        const user = await requireAuth(env, request);
+        if (user instanceof Response) return withCors(user, request, env);
+        return withCors(await handleSheetScan(env, request, user), request, env);
       }
 
       if (method === 'POST' && pathname === '/api/vision/identify') {
