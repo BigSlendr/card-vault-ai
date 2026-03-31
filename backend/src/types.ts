@@ -3,21 +3,20 @@ export interface Env {
   BUCKET: R2Bucket;
   CORS_ORIGIN?: string;
   ANTHROPIC_API_KEY: string;
+  EBAY_CLIENT_ID?: string;
+  EBAY_CLIENT_SECRET?: string;
 }
-
 export interface User {
   id: number;
   email: string;
   username: string | null;
   created_at: string;
 }
-
 export interface Session {
   id: string;
   user_id: number;
   expires_at: string;
 }
-
 export interface Card {
   id: number;
   game: string;
