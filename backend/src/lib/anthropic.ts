@@ -32,26 +32,32 @@ export interface SheetAnalysis {
   cards: SheetCard[];
 }
 
-type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
+// ── OpenAI API types ──────────────────────────────────────────────────────────
 
-interface AnthropicMessage {
-  role: 'user';
-  content: Array<
-    | { type: 'image'; source: { type: 'base64'; media_type: ImageMediaType; data: string } }
+interface OpenAIMessage {
+  role: 'user' | 'system';
+  content: string | Array
     | { type: 'text'; text: string }
+    | { type: 'image_url'; image_url: { url: string; detail: 'high' } }
   >;
 }
 
-interface AnthropicResponse {
-  content: Array<{ type: string; text: string }>;
+interface OpenAIResponse {
+  choices: Array<{
+    message: {
+      content: string | null;
+    };
+  }>;
   error?: { message: string };
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function stripJsonFences(text: string): string {
   return text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
 }
 
-async function callClaude(
+async function callOpenAI(
   apiKey: string,
   systemPrompt: string,
   userText: string,
@@ -59,54 +65,67 @@ async function callClaude(
   mimeType: string,
   maxTokens = 4096,
 ): Promise<string> {
-  const mediaType = mimeType as ImageMediaType;
+  const dataUrl = `data:${mimeType};base64,${imageBase64}`;
 
-  const message: AnthropicMessage = {
-    role: 'user',
-    content: [
-      { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
-      { type: 'text', text: userText },
-    ],
-  };
+  const messages: OpenAIMessage[] = [
+    {
+      role: 'system',
+      content: systemPrompt,
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'image_url',
+          image_url: { url: dataUrl, detail: 'high' },
+        },
+        {
+          type: 'text',
+          text: userText,
+        },
+      ],
+    },
+  ];
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 60_000);
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-5',
+        model: 'gpt-4o',
         max_tokens: maxTokens,
-        system: systemPrompt,
-        messages: [message],
+        messages,
+        response_format: { type: 'json_object' },
       }),
       signal: controller.signal,
     });
 
     if (!response.ok) {
       const errBody = await response.text();
-      throw new Error(`Anthropic API error ${response.status}: ${errBody}`);
+      throw new Error(`OpenAI API error ${response.status}: ${errBody}`);
     }
 
-    const data = (await response.json()) as AnthropicResponse;
-    const text = data.content?.[0]?.text ?? '';
-    if (!text) throw new Error('Empty response from Anthropic API');
+    const data = (await response.json()) as OpenAIResponse;
+    const text = data.choices?.[0]?.message?.content ?? '';
+    if (!text) throw new Error('Empty response from OpenAI API');
     return text;
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
+// ── analyzeSheet ──────────────────────────────────────────────────────────────
+
 const SHEET_SYSTEM_PROMPT = `You are an expert trading card and sports card authenticator and grader. \
 You analyze scanned binder pages containing multiple cards arranged in a \
 3x3 grid (9-pocket page). For each card you can see, identify it completely \
-and assess its condition.`;
+and assess its condition. Always respond with valid JSON only.`;
 
 const SHEET_USER_PROMPT = `This is a scanned 9-pocket binder page. Please analyze every card visible.
 For each card provide:
@@ -131,7 +150,7 @@ For each card provide:
    - confidence_score (0-100)
    - explanation (brief explanation of grade)
 
-Respond ONLY with a JSON object in this exact format, no other text:
+Respond ONLY with a JSON object in this exact format:
 {
   "card_count": number,
   "cards": [
@@ -167,7 +186,14 @@ export async function analyzeSheet(
   imageBase64: string,
   mimeType: string,
 ): Promise<SheetAnalysis> {
-  const rawText = await callClaude(apiKey, SHEET_SYSTEM_PROMPT, SHEET_USER_PROMPT, imageBase64, mimeType, 4096);
+  const rawText = await callOpenAI(
+    apiKey,
+    SHEET_SYSTEM_PROMPT,
+    SHEET_USER_PROMPT,
+    imageBase64,
+    mimeType,
+    4096,
+  );
 
   try {
     const parsed = JSON.parse(stripJsonFences(rawText)) as SheetAnalysis;
@@ -182,9 +208,11 @@ export async function analyzeSheet(
   }
 }
 
+// ── identifySingleCard ────────────────────────────────────────────────────────
+
 const SINGLE_SYSTEM_PROMPT = `You are an expert sports and trading card authenticator with encyclopedic \
 knowledge of all major sports and trading card games. Identify the card shown \
-with as much detail as possible.`;
+with as much detail as possible. Always respond with valid JSON only.`;
 
 const SINGLE_USER_PROMPT = `Identify this trading card completely. Respond ONLY with a JSON object:
 {
@@ -204,7 +232,14 @@ export async function identifySingleCard(
   imageBase64: string,
   mimeType: string,
 ): Promise<CardIdentification> {
-  const rawText = await callClaude(apiKey, SINGLE_SYSTEM_PROMPT, SINGLE_USER_PROMPT, imageBase64, mimeType, 1024);
+  const rawText = await callOpenAI(
+    apiKey,
+    SINGLE_SYSTEM_PROMPT,
+    SINGLE_USER_PROMPT,
+    imageBase64,
+    mimeType,
+    1024,
+  );
 
   try {
     return JSON.parse(stripJsonFences(rawText)) as CardIdentification;
