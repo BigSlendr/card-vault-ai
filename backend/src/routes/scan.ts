@@ -70,7 +70,7 @@ export async function handleSheetScan(env: Env, request: Request, user: User): P
   let analysis;
   try {
     const imageBase64 = arrayBufferToBase64(fileBuffer);
-    analysis = await analyzeSheet(env.ANTHROPIC_API_KEY, imageBase64, file.type);
+    analysis = await analyzeSheet(env.OPENAI_API_KEY, imageBase64, file.type);
   } catch (err) {
     console.error('Sheet analysis failed:', err);
     return serverError(`AI analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
