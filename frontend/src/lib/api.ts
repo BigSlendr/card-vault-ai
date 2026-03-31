@@ -180,6 +180,18 @@ export const api = {
   getGrade: (collectionItemId: number | string) =>
     http.get<never, GradingEstimate>(`/api/grading/${collectionItemId}`),
 
+  scanSheet: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return http.post<never, {
+      sheet_url: string;
+      cards_detected: number;
+      collection_items: CollectionItem[];
+    }>('/api/scan/sheet', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
   listReleases: () => http.get<never, Release[]>('/api/releases'),
   createRelease: (payload: Omit<Release, 'id' | 'created_at'>) =>
     http.post<never, Release>('/api/releases', payload),
