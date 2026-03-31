@@ -106,7 +106,7 @@ export type VisionConfirmPayload = {
 }
 
 const http = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:8787',
+  baseURL: import.meta.env.VITE_API_URL ?? 'https://card-vault-ai.michaelamarino16.workers.dev',
   withCredentials: true,
 });
 
