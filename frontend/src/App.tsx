@@ -6,6 +6,7 @@ import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import ReviewQueuePage from './pages/ReviewQueuePage'
+import ScanPage from './pages/ScanPage'
 import UploadPage from './pages/UploadPage'
 
 export default function App() {
@@ -19,6 +20,16 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <DashboardPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/scan"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <ScanPage />
             </Layout>
           </ProtectedRoute>
         }
