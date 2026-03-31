@@ -119,7 +119,10 @@ async function callOpenAI(
 const SHEET_SYSTEM_PROMPT = `You are an expert trading card and sports card authenticator and grader. \
 You analyze scanned binder pages containing multiple cards arranged in a \
 3x3 grid (9-pocket page). For each card you can see, identify it completely \
-and assess its condition. Always respond with valid JSON only.`;
+and assess its condition. Always respond with valid JSON only. \
+Always provide card names and set names in English, even for Japanese cards. \
+For Japanese Pokemon cards, translate the name to English (e.g. シャワーズ = Vaporeon). \
+Always provide a confidence value between 1 and 100, never 0.`;
 
 const SHEET_USER_PROMPT = `This is a scanned 9-pocket binder page. Please analyze every card visible.
 For each card provide:
