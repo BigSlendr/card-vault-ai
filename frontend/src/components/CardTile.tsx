@@ -87,7 +87,7 @@ export default function CardTile({ collectionItem }: Props) {
             {collectionItem.sport || collectionItem.game || collectionItem.card?.sport || collectionItem.card?.game || 'Other'}
           </span>
           <span className="badge">
-            ${(((collectionItem.estimated_value_cents ?? 0) / 100) || 0).toFixed(2)}
+            ${((((collectionItem as any).latest_sold_price_cents ?? collectionItem.estimated_value_cents ?? 0) / 100) || 0).toFixed(2)}
           </span>
           <span className="badge">{collectionItem.condition_note || 'Raw'}</span>
           <span className={`badge ${confidenceClass}`}>AI {confidence}%</span>
