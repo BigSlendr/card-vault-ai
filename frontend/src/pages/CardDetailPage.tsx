@@ -228,7 +228,7 @@ export default function CardDetailPage() {
             </div>
             <div className="shrink-0 text-right">
               <p className="text-3xl font-bold">
-                ${((item.estimated_value_cents || 0) / 100).toFixed(2)}
+                ${(((item as any).latest_sold_price_cents || item.estimated_value_cents || 0) / 100).toFixed(2)}
               </p>
               {trend && (
                 <p className={`text-sm font-medium ${trend.up ? 'text-green-400' : 'text-red-400'}`}>
