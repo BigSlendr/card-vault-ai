@@ -472,7 +472,7 @@ export default function CardDetailPage() {
                   <div className="h-2 rounded-full bg-cv-bg2">
                     <div
                       className="h-2 rounded-full bg-cv-secondary"
-                      style={{ width: `${score * 10}%` }}
+                      style={{ width: `${Math.min(100, (Number(score) / 10) * 100)}%` }}
                     />
                   </div>
                 </div>
