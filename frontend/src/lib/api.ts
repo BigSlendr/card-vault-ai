@@ -44,6 +44,21 @@ export type CollectionItem = {
   suggestions?: Partial<VisionConfirmPayload> | null
   created_at?: string
   updated_at?: string
+  // bbox for canvas cropping
+  bbox_x?: number | null
+  bbox_y?: number | null
+  bbox_width?: number | null
+  bbox_height?: number | null
+  // card fields joined from cards table
+  card_name?: string | null
+  set_name?: string | null
+  sport?: string | null
+  player_name?: string | null
+  year?: number | null
+  variation?: string | null
+  manufacturer?: string | null
+  game?: string | null
+  card_number?: string | null
 }
 
 export type SalesComp = {
