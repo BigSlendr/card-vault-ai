@@ -467,12 +467,14 @@ export default function CardDetailPage() {
                 <div key={name}>
                   <div className="mb-1 flex justify-between text-xs">
                     <span className="text-cv-muted">{name}</span>
-                    <span className="font-medium">{score}/10</span>
+                    <span className="font-medium">
+  {Number(score) > 10 ? `${Number(score)}/100` : `${Number(score)}/10`}
+</span>
                   </div>
                   <div className="h-2 rounded-full bg-cv-bg2">
                     <div
                       className="h-2 rounded-full bg-cv-secondary"
-                      style={{ width: `${Math.min(100, (Number(score) / 10) * 100)}%` }}
+                      style={{ width: `${Math.min(100, Number(score) > 10 ? Number(score) : (Number(score) / 10) * 100)}%` }}
                     />
                   </div>
                 </div>
