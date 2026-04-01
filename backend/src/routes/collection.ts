@@ -47,11 +47,14 @@ export async function listCollection(env: Env, user: User, request: Request): Pr
 
   const rows = await queryAll(
     env.DB,
-    `SELECT ci.*, c.game, c.set_name, c.card_name, c.card_number, c.rarity
+    `SELECT ci.*,
+            ci.bbox_x, ci.bbox_y, ci.bbox_width, ci.bbox_height,
+            c.game, c.set_name, c.card_name, c.card_number, c.rarity,
+            c.sport, c.player_name, c.year, c.variation, c.manufacturer
      FROM collection_items ci
      LEFT JOIN cards c ON ci.card_id = c.id
      WHERE ci.user_id = ?
-     ORDER BY ci.updated_at DESC`,
+     ORDER BY ci.created_at DESC`,
     [user.id],
   );
   return ok(rows);
@@ -90,7 +93,10 @@ export async function createCollectionItem(env: Env, request: Request, user: Use
 export async function getCollectionItem(env: Env, user: User, id: number): Promise<Response> {
   const item = await queryOne(
     env.DB,
-    `SELECT ci.*, c.game, c.set_name, c.card_name, c.card_number, c.rarity
+    `SELECT ci.*,
+            ci.bbox_x, ci.bbox_y, ci.bbox_width, ci.bbox_height,
+            c.game, c.set_name, c.card_name, c.card_number, c.rarity,
+            c.sport, c.player_name, c.year, c.variation, c.manufacturer
      FROM collection_items ci
      LEFT JOIN cards c ON ci.card_id = c.id
      WHERE ci.id = ? AND ci.user_id = ?`,

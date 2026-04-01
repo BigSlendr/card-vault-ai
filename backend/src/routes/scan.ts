@@ -166,8 +166,8 @@ export async function handleSheetScan(env: Env, request: Request, user: User): P
 
       await run(
         env.DB,
-        `INSERT INTO collection_items (user_id, card_id, quantity, condition_note, estimated_grade, estimated_value_cents, front_image_url)
-         VALUES (?, ?, 1, ?, ?, ?, ?)`,
+        `INSERT INTO collection_items (user_id, card_id, quantity, condition_note, estimated_grade, estimated_value_cents, front_image_url, bbox_x, bbox_y, bbox_width, bbox_height)
+         VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           user.id,
           cardId,
@@ -175,6 +175,10 @@ export async function handleSheetScan(env: Env, request: Request, user: User): P
           grading.estimated_grade_range,
           estimatedValueCents,
           sheetUrl,
+          cardData.bbox.x,
+          cardData.bbox.y,
+          cardData.bbox.width,
+          cardData.bbox.height,
         ],
       );
 
