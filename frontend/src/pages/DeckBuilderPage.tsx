@@ -1,258 +1,529 @@
 import { useMemo, useState } from 'react'
-import { Copy, Layers, Minus, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Copy, Layers, Minus, Plus, RefreshCw, Trash2, CheckCircle, XCircle } from 'lucide-react'
 import CardCrop from '../components/CardCrop'
 import { api, type CollectionItem } from '../lib/api'
 import { useCollection } from '../lib/hooks'
 
-const GAMES = [
-  { id: 'pokemon', label: 'Pokémon TCG', deckSize: 60, maxCopies: 4 },
-  { id: 'yugioh', label: 'Yu-Gi-Oh!', deckSize: 40, maxCopies: 3 },
-  { id: 'magic', label: 'Magic: The Gathering', deckSize: 60, maxCopies: 4 },
-  { id: 'other', label: 'Other', deckSize: 60, maxCopies: 4 },
-] as const
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-type GameId = (typeof GAMES)[number]['id']
+type ActiveTab = 'deck' | 'master-set'
+type SelectedGame = 'pokemon' | 'magic' | 'yugioh' | 'lorcana' | 'onepiece'
+type ChecklistFilter = 'all' | 'owned' | 'missing'
 
-const FORMATS: Record<GameId, string[]> = {
-  pokemon: ['Standard', 'Expanded', 'Unlimited', 'Theme'],
-  yugioh: ['Advanced', 'Traditional', 'Speed Duel'],
-  magic: ['Standard', 'Modern', 'Legacy', 'Vintage', 'Commander', 'Pioneer'],
-  other: ['Custom'],
+interface MetaDeck {
+  name: string
+  archetype: string
+  format: string
+  theme: string
+  description: string
+  key_cards: string[]
+  strategy: string
 }
 
-const FORMAT_RULES: Record<string, Record<string, string>> = {
-  pokemon: {
-    Standard: '60 cards, max 4 copies (except basic energy), 1 Prize card format',
-    Expanded: '60 cards, all Black & White onwards sets legal',
-    Unlimited: '60 cards, all sets legal',
-    Theme: '60 cards, pre-constructed theme decks only',
-  },
-  yugioh: {
-    Advanced: '40–60 cards main deck, banned list applies',
-    Traditional: '40–60 cards, all cards legal',
-    'Speed Duel': '20 card deck, simplified rules',
-  },
-  magic: {
-    Standard: '60 cards, last 2 years of sets',
-    Modern: '60 cards, 8th Edition onwards',
-    Legacy: '60 cards, most sets legal with banned list',
-    Vintage: '60 cards, all sets with restricted list',
-    Commander: '100 card singleton, 1 commander',
-    Pioneer: '60 cards, Return to Ravnica onwards',
-  },
-  other: { Custom: 'Custom format rules' },
+interface DeckAnalysis {
+  have: CollectionItem[]
+  need: string[]
+  completion_pct: number
+  have_count: number
+  need_count: number
+  total_key_cards: number
 }
 
-interface DeckEntry {
-  collection_item_id: number
-  card_name: string
+interface CustomDeckEntry {
+  collectionItemId: number
+  cardName: string
   copies: number
   item: CollectionItem
 }
 
-const SPORT_COLORS: Record<string, string> = {
-  pokemon: 'bg-yellow-500/20 text-yellow-300',
-  yugioh: 'bg-purple-500/20 text-purple-300',
-  magic: 'bg-blue-500/20 text-blue-300',
-  baseball: 'bg-blue-500/20 text-blue-200',
-  basketball: 'bg-orange-500/20 text-orange-200',
-  football: 'bg-green-500/20 text-green-200',
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const GAMES: Array<{ id: SelectedGame; label: string; deckSize: number; maxCopies: number }> = [
+  { id: 'pokemon', label: 'Pokémon', deckSize: 60, maxCopies: 4 },
+  { id: 'magic', label: 'Magic', deckSize: 60, maxCopies: 4 },
+  { id: 'yugioh', label: 'Yu-Gi-Oh', deckSize: 40, maxCopies: 3 },
+  { id: 'lorcana', label: 'Lorcana', deckSize: 60, maxCopies: 4 },
+  { id: 'onepiece', label: 'One Piece', deckSize: 50, maxCopies: 4 },
+]
+
+const FORMATS: Record<SelectedGame, string[]> = {
+  pokemon: ['Standard', 'Expanded', 'Unlimited', 'Theme'],
+  magic: ['Standard', 'Modern', 'Legacy', 'Vintage', 'Commander', 'Pioneer'],
+  yugioh: ['Advanced', 'Traditional', 'Speed Duel'],
+  lorcana: ['Standard', 'Casual'],
+  onepiece: ['Standard', 'Casual'],
 }
 
-function getGameColor(item: CollectionItem) {
-  const g = (item.game || item.sport || item.card?.game || item.card?.sport || '').toLowerCase()
-  return SPORT_COLORS[g] ?? 'bg-violet-500/20 text-violet-200'
+const STRATEGY_COLORS: Record<string, string> = {
+  aggro: 'bg-red-500/20 text-red-300',
+  control: 'bg-blue-500/20 text-blue-300',
+  combo: 'bg-purple-500/20 text-purple-300',
+  midrange: 'bg-green-500/20 text-green-300',
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function cardImageUrl(item: CollectionItem): string | null {
+  if (!item.front_image_url) return null
+  const base = import.meta.env.VITE_API_URL ?? ''
+  return `${base}/api/images/${encodeURIComponent(item.front_image_url)}`
+}
+
+function hasBbox(item: CollectionItem): boolean {
+  return item.bbox_x != null && item.bbox_y != null && item.bbox_width != null && item.bbox_height != null
+}
+
+function itemBbox(item: CollectionItem) {
+  return { x: item.bbox_x!, y: item.bbox_y!, width: item.bbox_width!, height: item.bbox_height! }
+}
+
+function cardName(item: CollectionItem): string {
+  return item.player_name || item.card_name || item.card?.player_name || item.card?.card_name || 'Unknown'
+}
+
+// ── Mini card image ───────────────────────────────────────────────────────────
+
+function MiniCard({ item, className = '' }: { item: CollectionItem; className?: string }) {
+  const url = cardImageUrl(item)
+  const name = cardName(item)
+  if (url && hasBbox(item)) {
+    return <CardCrop sheetUrl={url} bbox={itemBbox(item)} className={className} />
+  }
+  if (url) {
+    return <img src={url} alt={name} className={className} />
+  }
+  return (
+    <div className={`flex items-center justify-center bg-[linear-gradient(135deg,var(--primary),var(--secondary))] text-xs font-bold ${className}`}>
+      {name.slice(0, 2).toUpperCase()}
+    </div>
+  )
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
 
 export default function DeckBuilderPage() {
-  const { data: allItems = [], isLoading } = useCollection(true)
+  const { data: allItems = [], isLoading: collectionLoading } = useCollection(true)
 
-  const [gameId, setGameId] = useState<GameId>('pokemon')
-  const [format, setFormat] = useState('Standard')
-  const [deckEntries, setDeckEntries] = useState<DeckEntry[]>([])
-  const [search, setSearch] = useState('')
+  // Tab and game state
+  const [activeTab, setActiveTab] = useState<ActiveTab>('deck')
+  const [selectedGame, setSelectedGame] = useState<SelectedGame>('pokemon')
+  const [selectedFormat, setSelectedFormat] = useState('Standard')
+
+  // Meta deck state
+  const [selectedMetaDeck, setSelectedMetaDeck] = useState<MetaDeck | null>(null)
+  const [deckAnalysis, setDeckAnalysis] = useState<DeckAnalysis | null>(null)
+  const [analyzingDeck, setAnalyzingDeck] = useState(false)
+
+  // Custom deck state
+  const [customDeck, setCustomDeck] = useState<CustomDeckEntry[]>([])
+  const [deckName, setDeckName] = useState('My Deck')
+  const [deckSearch, setDeckSearch] = useState('')
+  const [deckMessage, setDeckMessage] = useState('')
   const [generating, setGenerating] = useState(false)
-  const [genMessage, setGenMessage] = useState('')
 
-  const game = GAMES.find((g) => g.id === gameId)!
+  // Master set state
+  const [selectedSet, setSelectedSet] = useState<string>('')
+  const [showAllSets, setShowAllSets] = useState(false)
+  const [checklistFilter, setChecklistFilter] = useState<ChecklistFilter>('all')
 
-  // Filter collection by selected game
+  // Queries
+  const { data: metaData } = useQuery({
+    queryKey: ['meta', selectedGame],
+    queryFn: () => api.getMetaDecks(selectedGame),
+    staleTime: 1000 * 60 * 60,
+  })
+
+  const { data: setsData } = useQuery({
+    queryKey: ['pokemon-sets', showAllSets],
+    queryFn: () => api.getPokemonSets(showAllSets),
+    staleTime: 1000 * 60 * 60,
+  })
+
+  const { data: checklist, isLoading: checklistLoading } = useQuery({
+    queryKey: ['checklist', selectedSet],
+    queryFn: () => api.getSetChecklist(selectedSet),
+    enabled: !!selectedSet,
+    staleTime: 1000 * 60 * 30,
+  })
+
+  const game = GAMES.find(g => g.id === selectedGame)!
+
+  // Filter collection by game
   const gameItems = useMemo(() => {
-    return allItems.filter((item) => {
+    return allItems.filter(item => {
       const g = (item.game || item.sport || item.card?.game || item.card?.sport || '').toLowerCase()
-      return g.includes(gameId) || gameId === 'other'
+      return g.includes(selectedGame)
     })
-  }, [allItems, gameId])
+  }, [allItems, selectedGame])
 
   const filteredPool = useMemo(() => {
-    if (!search) return gameItems
-    const q = search.toLowerCase()
-    return gameItems.filter((item) => {
-      const name = `${item.player_name || ''} ${item.card_name || ''} ${item.card?.player_name || ''} ${item.card?.card_name || ''}`.toLowerCase()
-      return name.includes(q)
-    })
-  }, [gameItems, search])
+    if (!deckSearch) return gameItems
+    const q = deckSearch.toLowerCase()
+    return gameItems.filter(item => cardName(item).toLowerCase().includes(q))
+  }, [gameItems, deckSearch])
 
-  const totalCards = useMemo(() => deckEntries.reduce((s, e) => s + e.copies, 0), [deckEntries])
+  const metaDecks = metaData?.decks ?? []
+
+  // Custom deck helpers
+  const totalCards = useMemo(() => customDeck.reduce((s, e) => s + e.copies, 0), [customDeck])
   const deckValue = useMemo(
-    () => deckEntries.reduce((s, e) => s + (e.item.latest_sold_price_cents ?? e.item.estimated_value_cents ?? 0) * e.copies, 0),
-    [deckEntries],
+    () => customDeck.reduce((s, e) => s + (e.item.latest_sold_price_cents ?? e.item.estimated_value_cents ?? 0) * e.copies, 0),
+    [customDeck],
   )
+  const progressPct = Math.min(100, (totalCards / game.deckSize) * 100)
+  const progressColor = progressPct === 100 ? 'bg-cv-good' : progressPct > 60 ? 'bg-[var(--primary)]' : 'bg-cv-warn'
 
   function getCopiesInDeck(itemId: number) {
-    return deckEntries.find((e) => e.collection_item_id === itemId)?.copies ?? 0
+    return customDeck.find(e => e.collectionItemId === itemId)?.copies ?? 0
   }
 
   function addCard(item: CollectionItem) {
-    const name = item.player_name || item.card_name || item.card?.player_name || item.card?.card_name || 'Unknown'
-    setDeckEntries((prev) => {
-      const existing = prev.find((e) => e.collection_item_id === item.id)
+    const name = cardName(item)
+    setCustomDeck(prev => {
+      const existing = prev.find(e => e.collectionItemId === item.id)
       if (existing) {
         if (existing.copies >= game.maxCopies) return prev
-        return prev.map((e) => e.collection_item_id === item.id ? { ...e, copies: e.copies + 1 } : e)
+        return prev.map(e => e.collectionItemId === item.id ? { ...e, copies: e.copies + 1 } : e)
       }
-      return [...prev, { collection_item_id: item.id, card_name: name, copies: 1, item }]
+      return [...prev, { collectionItemId: item.id, cardName: name, copies: 1, item }]
     })
   }
 
   function removeCard(itemId: number) {
-    setDeckEntries((prev) => {
-      const existing = prev.find((e) => e.collection_item_id === itemId)
+    setCustomDeck(prev => {
+      const existing = prev.find(e => e.collectionItemId === itemId)
       if (!existing) return prev
-      if (existing.copies <= 1) return prev.filter((e) => e.collection_item_id !== itemId)
-      return prev.map((e) => e.collection_item_id === itemId ? { ...e, copies: e.copies - 1 } : e)
+      if (existing.copies <= 1) return prev.filter(e => e.collectionItemId !== itemId)
+      return prev.map(e => e.collectionItemId === itemId ? { ...e, copies: e.copies - 1 } : e)
     })
   }
 
   function clearDeck() {
-    setDeckEntries([])
-    setGenMessage('')
+    setCustomDeck([])
+    setDeckMessage('')
   }
 
   function exportList() {
-    const lines = deckEntries.map((e) => `${e.copies}x ${e.card_name}`).join('\n')
+    const lines = customDeck.map(e => `${e.copies}x ${e.cardName}`).join('\n')
     void navigator.clipboard.writeText(lines)
+    setDeckMessage('Copied to clipboard!')
   }
 
-  function saveDeck() {
-    const saved = { game: gameId, format, entries: deckEntries.map((e) => ({ id: e.collection_item_id, name: e.card_name, copies: e.copies })) }
-    localStorage.setItem('cardvault_deck', JSON.stringify(saved))
-    setGenMessage('Deck saved locally!')
+  async function handleSaveDeck() {
+    if (!customDeck.length) return
+    try {
+      await api.saveDeck({
+        name: deckName,
+        game: selectedGame,
+        format: selectedFormat,
+        cards_json: JSON.stringify(customDeck.map(e => ({ id: e.collectionItemId, name: e.cardName, copies: e.copies }))),
+      })
+      setDeckMessage('Deck saved!')
+    } catch {
+      setDeckMessage('Save failed.')
+    }
   }
 
   async function handleGenerate() {
     setGenerating(true)
-    setGenMessage('')
+    setDeckMessage('')
     try {
-      const result = await api.generateDeck({ game: gameId, format })
-      const newEntries: DeckEntry[] = []
+      const result = await api.generateDeck({ game: selectedGame, format: selectedFormat })
+      const newEntries: CustomDeckEntry[] = []
       for (const d of result.deck) {
-        const item = allItems.find((i) => i.id === d.collection_item_id)
-        if (item) newEntries.push({ collection_item_id: d.collection_item_id, card_name: d.card_name, copies: d.copies, item })
+        const item = allItems.find(i => i.id === d.collection_item_id)
+        if (item) newEntries.push({ collectionItemId: d.collection_item_id, cardName: d.card_name, copies: d.copies, item })
       }
-      setDeckEntries(newEntries)
-      setGenMessage(result.message)
+      setCustomDeck(newEntries)
+      setDeckMessage(result.message)
     } catch (err) {
-      setGenMessage(err instanceof Error ? err.message : 'Generation failed')
+      setDeckMessage(err instanceof Error ? err.message : 'Generation failed')
     } finally {
       setGenerating(false)
     }
   }
 
-  function onGameChange(id: GameId) {
-    setGameId(id)
-    setFormat(FORMATS[id][0])
+  async function buildFromCollection(deck: MetaDeck) {
+    setAnalyzingDeck(true)
+    setSelectedMetaDeck(deck)
+    setDeckAnalysis(null)
+    try {
+      const result = await api.analyzeDeck({
+        key_cards: deck.key_cards,
+        game: selectedGame,
+        deck_size: game.deckSize,
+      })
+      setDeckAnalysis(result)
+    } catch (err) {
+      console.error('analyzeDeck failed:', err)
+    } finally {
+      setAnalyzingDeck(false)
+    }
+  }
+
+  function onGameChange(id: SelectedGame) {
+    setSelectedGame(id)
+    setSelectedFormat(FORMATS[id][0])
+    setSelectedMetaDeck(null)
+    setDeckAnalysis(null)
     clearDeck()
   }
 
-  const progressPct = Math.min(100, (totalCards / game.deckSize) * 100)
-  const progressColor = progressPct === 100 ? 'bg-cv-good' : progressPct > 60 ? 'bg-[var(--primary)]' : 'bg-cv-warn'
+  // Checklist filtered cards
+  const displayedCards = useMemo(() => {
+    if (!checklist?.cards) return []
+    if (checklistFilter === 'owned') return checklist.cards.filter(c => c.owned)
+    if (checklistFilter === 'missing') return checklist.cards.filter(c => !c.owned)
+    return checklist.cards
+  }, [checklist, checklistFilter])
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="page-enter space-y-4">
+      {/* Header + tabs */}
       <div className="flex items-center gap-3">
         <Layers className="h-6 w-6 text-[var(--primary)]" />
-        <div>
+        <div className="flex-1">
           <h2 className="text-2xl font-bold">Deck Builder</h2>
           <p className="text-sm text-cv-muted">Build decks from your collection</p>
         </div>
+        <div className="flex gap-1 rounded-[var(--radius-md)] bg-cv-surface p-1">
+          <button
+            className={`px-4 py-1.5 rounded-[var(--radius-sm)] text-sm font-medium transition ${activeTab === 'deck' ? 'bg-[var(--primary)] text-white' : 'text-cv-muted hover:text-cv-text'}`}
+            onClick={() => setActiveTab('deck')}
+            type="button"
+          >
+            Deck Builder
+          </button>
+          <button
+            className={`px-4 py-1.5 rounded-[var(--radius-sm)] text-sm font-medium transition ${activeTab === 'master-set' ? 'bg-[var(--primary)] text-white' : 'text-cv-muted hover:text-cv-text'}`}
+            onClick={() => setActiveTab('master-set')}
+            type="button"
+          >
+            Master Set
+          </button>
+        </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[30%_40%_30%]">
-        {/* LEFT PANEL — Deck Configuration + Deck List */}
-        <div className="space-y-4">
-          <div className="glass p-4">
-            <h3 className="mb-3 font-semibold">Deck Configuration</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-xs text-cv-muted">Game</label>
-                <select
-                  className="input"
-                  value={gameId}
-                  onChange={(e) => onGameChange(e.target.value as GameId)}
-                >
-                  {GAMES.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-cv-muted">Format</label>
-                <select
-                  className="input"
-                  value={format}
-                  onChange={(e) => setFormat(e.target.value)}
-                >
-                  {FORMATS[gameId].map((f) => <option key={f}>{f}</option>)}
-                </select>
-              </div>
+      {/* Game selector + format */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex gap-1 rounded-[var(--radius-md)] bg-cv-surface p-1">
+          {GAMES.map(g => (
+            <button
+              key={g.id}
+              className={`px-3 py-1 rounded-[var(--radius-sm)] text-xs font-medium transition ${selectedGame === g.id ? 'bg-[var(--primary)] text-white' : 'text-cv-muted hover:text-cv-text'}`}
+              onClick={() => onGameChange(g.id)}
+              type="button"
+            >
+              {g.label}
+            </button>
+          ))}
+        </div>
+        <select
+          className="input w-auto text-sm"
+          value={selectedFormat}
+          onChange={e => setSelectedFormat(e.target.value)}
+        >
+          {FORMATS[selectedGame].map(f => <option key={f}>{f}</option>)}
+        </select>
+      </div>
+
+      {/* ── DECK BUILDER TAB ── */}
+      {activeTab === 'deck' && (
+        <div className="grid gap-4 lg:grid-cols-[30%_40%_30%]">
+
+          {/* LEFT — Meta Deck Browser */}
+          <div className="space-y-3">
+            <div className="glass p-4">
+              <h3 className="mb-3 font-semibold">Meta Decks</h3>
+              {metaDecks.length === 0 ? (
+                <p className="text-sm text-cv-muted">No meta decks for this game.</p>
+              ) : (
+                <div className="space-y-3">
+                  {metaDecks.map(deck => (
+                    <div
+                      key={deck.name}
+                      className={`rounded-[var(--radius-md)] border p-3 cursor-pointer transition ${selectedMetaDeck?.name === deck.name ? 'border-[var(--primary)] bg-[var(--primary)]/10' : 'border-cv-border bg-cv-surface hover:border-cv-border/60'}`}
+                      onClick={() => setSelectedMetaDeck(deck)}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <p className="font-semibold text-sm">{deck.name}</p>
+                        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${STRATEGY_COLORS[deck.strategy] ?? 'bg-gray-500/20 text-gray-300'}`}>
+                          {deck.theme}
+                        </span>
+                      </div>
+                      <p className="text-xs text-cv-muted mb-2">{deck.description}</p>
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {deck.key_cards.map(kc => (
+                          <span key={kc} className="rounded bg-cv-bg2 px-1.5 py-0.5 text-[10px] text-cv-muted">{kc}</span>
+                        ))}
+                      </div>
+                      <button
+                        className="btn-primary w-full text-xs py-1"
+                        onClick={e => { e.stopPropagation(); void buildFromCollection(deck) }}
+                        disabled={analyzingDeck}
+                        type="button"
+                      >
+                        {analyzingDeck && selectedMetaDeck?.name === deck.name ? (
+                          <span className="flex items-center justify-center gap-1"><RefreshCw className="h-3 w-3 animate-spin" /> Analyzing...</span>
+                        ) : 'Build from my collection'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
+
+            {/* Have/Need Analysis */}
+            {deckAnalysis && selectedMetaDeck && (
+              <div className="glass p-4">
+                <h3 className="mb-2 font-semibold text-sm">{selectedMetaDeck.name} — Collection Analysis</h3>
+                <div className="mb-3">
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-cv-muted">You have {deckAnalysis.have_count}/{deckAnalysis.total_key_cards} key cards</span>
+                    <span className="font-semibold">{deckAnalysis.completion_pct}%</span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-cv-surface">
+                    <div
+                      className="h-full rounded-full bg-cv-good transition-all"
+                      style={{ width: `${deckAnalysis.completion_pct}%` }}
+                    />
+                  </div>
+                </div>
+
+                {deckAnalysis.have.length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-xs font-semibold text-green-400 mb-1 flex items-center gap-1">
+                      <CheckCircle className="h-3 w-3" /> Have ({deckAnalysis.have_count})
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {deckAnalysis.have.map(item => (
+                        <div key={item.id} className="h-12 w-9 overflow-hidden rounded" title={cardName(item)}>
+                          <MiniCard item={item} className="h-full w-full object-cover" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {deckAnalysis.need.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-red-400 mb-1 flex items-center gap-1">
+                      <XCircle className="h-3 w-3" /> Need ({deckAnalysis.need_count})
+                    </p>
+                    <div className="space-y-1">
+                      {deckAnalysis.need.map(name => (
+                        <div key={name} className="flex items-center justify-between text-xs">
+                          <span className="text-cv-muted">{name}</span>
+                          <a
+                            href={`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(name + ' pokemon card')}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[var(--primary)] hover:underline shrink-0"
+                          >
+                            eBay →
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
+          {/* CENTER — Collection Card Pool */}
           <div className="glass p-4">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="font-semibold">Deck List</h3>
-              <span className="text-sm text-cv-muted">{totalCards}/{game.deckSize}</span>
+              <h3 className="font-semibold">{GAMES.find(g => g.id === selectedGame)?.label} Cards</h3>
+              <span className="text-xs text-cv-muted">{gameItems.length} cards</span>
             </div>
-
-            {/* Progress bar */}
-            <div className="mb-4 h-2 w-full overflow-hidden rounded-full bg-cv-surface">
-              <div
-                className={`h-full rounded-full transition-all ${progressColor}`}
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-
-            {deckEntries.length === 0 ? (
-              <p className="py-4 text-center text-sm text-cv-muted">
-                No cards added yet. Browse your collection →
-              </p>
+            <input
+              className="input mb-3"
+              placeholder="Search cards..."
+              value={deckSearch}
+              onChange={e => setDeckSearch(e.target.value)}
+            />
+            {collectionLoading ? (
+              <p className="py-8 text-center text-sm text-cv-muted">Loading collection...</p>
+            ) : filteredPool.length === 0 ? (
+              <div className="py-8 text-center">
+                <p className="text-sm text-cv-muted">No {GAMES.find(g => g.id === selectedGame)?.label} cards in your collection.</p>
+                <p className="mt-1 text-xs text-cv-muted">Scan or upload cards to get started.</p>
+              </div>
             ) : (
-              <div className="max-h-80 space-y-1 overflow-y-auto pr-1">
-                {deckEntries.map((entry) => {
-                  const apiBase = import.meta.env.VITE_API_URL ?? ''
-                  const imageUrl = entry.item.front_image_url
-                    ? `${apiBase}/api/images/${encodeURIComponent(entry.item.front_image_url)}`
-                    : null
-                  const hasBbox = entry.item.bbox_x != null && entry.item.bbox_y != null
-                  const bbox = hasBbox
-                    ? { x: entry.item.bbox_x!, y: entry.item.bbox_y!, width: entry.item.bbox_width!, height: entry.item.bbox_height! }
-                    : null
-
+              <div className="grid max-h-[600px] grid-cols-2 gap-2 overflow-y-auto pr-1">
+                {filteredPool.map(item => {
+                  const copies = getCopiesInDeck(item.id)
+                  const atMax = copies >= game.maxCopies
+                  const name = cardName(item)
+                  const value = item.latest_sold_price_cents ?? item.estimated_value_cents ?? 0
                   return (
-                    <div key={entry.collection_item_id} className="flex items-center gap-2 rounded-[var(--radius-md)] bg-cv-surface p-2">
-                      <div className="h-8 w-6 flex-shrink-0 overflow-hidden rounded">
-                        {imageUrl && bbox ? (
-                          <CardCrop sheetUrl={imageUrl} bbox={bbox} className="h-full w-full object-cover" />
-                        ) : imageUrl ? (
-                          <img src={imageUrl} alt={entry.card_name} className="h-full w-full object-cover" />
-                        ) : (
-                          <div className="h-full w-full bg-[linear-gradient(135deg,var(--primary),var(--secondary))]" />
-                        )}
+                    <button
+                      key={item.id}
+                      className={`card-hover glass relative overflow-hidden rounded-[var(--radius-md)] p-2 text-left transition-opacity ${atMax ? 'opacity-50' : ''}`}
+                      onClick={() => !atMax && addCard(item)}
+                      disabled={atMax}
+                      type="button"
+                    >
+                      <div className="h-24 w-full overflow-hidden rounded-[var(--radius-sm)]">
+                        <MiniCard item={item} className="h-full w-full object-cover" />
                       </div>
-                      <span className="flex-1 truncate text-xs">{entry.card_name}</span>
+                      <p className="mt-1.5 truncate text-xs font-semibold">{name}</p>
+                      <p className="text-[10px] text-cv-muted">${(value / 100).toFixed(2)}</p>
+                      {copies > 0 && (
+                        <div className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--primary)] text-[10px] font-bold text-white">
+                          {copies}
+                        </div>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* RIGHT — Custom Deck Builder */}
+          <div className="space-y-4">
+            <div className="glass p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="font-semibold">Custom Deck</h3>
+                <span className="text-sm text-cv-muted">{totalCards}/{game.deckSize}</span>
+              </div>
+
+              <input
+                className="input mb-3 text-sm"
+                placeholder="Deck name..."
+                value={deckName}
+                onChange={e => setDeckName(e.target.value)}
+              />
+
+              {/* Progress bar */}
+              <div className="mb-4 h-2 w-full overflow-hidden rounded-full bg-cv-surface">
+                <div
+                  className={`h-full rounded-full transition-all ${progressColor}`}
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+
+              {customDeck.length === 0 ? (
+                <p className="py-4 text-center text-sm text-cv-muted">
+                  Click cards from your collection →
+                </p>
+              ) : (
+                <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+                  {customDeck.map(entry => (
+                    <div key={entry.collectionItemId} className="flex items-center gap-2 rounded-[var(--radius-md)] bg-cv-surface p-2">
+                      <div className="h-8 w-6 flex-shrink-0 overflow-hidden rounded">
+                        <MiniCard item={entry.item} className="h-full w-full object-cover" />
+                      </div>
+                      <span className="flex-1 truncate text-xs">{entry.cardName}</span>
                       <div className="flex items-center gap-1">
                         <button
                           className="flex h-5 w-5 items-center justify-center rounded-full bg-cv-surfaceStrong text-cv-muted hover:text-cv-text"
-                          onClick={() => removeCard(entry.collection_item_id)}
+                          onClick={() => removeCard(entry.collectionItemId)}
                           type="button"
                         >
                           <Minus className="h-3 w-3" />
@@ -268,196 +539,187 @@ export default function DeckBuilderPage() {
                         </button>
                       </div>
                     </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {deckEntries.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button className="btn-primary flex-1 text-xs" onClick={saveDeck} type="button">
-                  Save Deck
-                </button>
-                <button className="btn-secondary text-xs" onClick={exportList} title="Copy to clipboard" type="button">
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
-                <button className="btn-ghost text-xs text-cv-danger" onClick={clearDeck} title="Clear deck" type="button">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* CENTER PANEL — Card Pool */}
-        <div className="glass p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="font-semibold">Your {GAMES.find((g) => g.id === gameId)?.label} Cards</h3>
-            <span className="text-xs text-cv-muted">{gameItems.length} cards</span>
-          </div>
-
-          <input
-            className="input mb-3"
-            placeholder="Search cards..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-
-          {isLoading ? (
-            <p className="py-8 text-center text-sm text-cv-muted">Loading collection...</p>
-          ) : filteredPool.length === 0 ? (
-            <div className="py-8 text-center">
-              <p className="text-sm text-cv-muted">No {GAMES.find((g) => g.id === gameId)?.label} cards in your collection.</p>
-              <p className="mt-1 text-xs text-cv-muted">Scan or upload cards to get started.</p>
-            </div>
-          ) : (
-            <div className="grid max-h-[600px] grid-cols-2 gap-2 overflow-y-auto pr-1">
-              {filteredPool.map((item) => {
-                const apiBase = import.meta.env.VITE_API_URL ?? ''
-                const imageUrl = item.front_image_url
-                  ? `${apiBase}/api/images/${encodeURIComponent(item.front_image_url)}`
-                  : null
-                const hasBbox = item.bbox_x != null && item.bbox_y != null
-                const bbox = hasBbox
-                  ? { x: item.bbox_x!, y: item.bbox_y!, width: item.bbox_width!, height: item.bbox_height! }
-                  : null
-                const copies = getCopiesInDeck(item.id)
-                const atMax = copies >= game.maxCopies
-                const name = item.player_name || item.card_name || item.card?.player_name || item.card?.card_name || 'Unknown'
-                const value = item.latest_sold_price_cents ?? item.estimated_value_cents ?? 0
-
-                return (
-                  <button
-                    key={item.id}
-                    className={`card-hover glass relative overflow-hidden rounded-[var(--radius-md)] p-2 text-left transition-opacity ${atMax ? 'opacity-50' : ''}`}
-                    onClick={() => !atMax && addCard(item)}
-                    disabled={atMax}
-                    type="button"
-                  >
-                    <div className="h-24 w-full overflow-hidden rounded-[var(--radius-sm)]">
-                      {imageUrl && bbox ? (
-                        <CardCrop sheetUrl={imageUrl} bbox={bbox} className="h-full w-full object-cover" />
-                      ) : imageUrl ? (
-                        <img src={imageUrl} alt={name} className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-[linear-gradient(135deg,var(--primary),var(--secondary))] text-xl font-bold">
-                          {name.slice(0, 2).toUpperCase()}
-                        </div>
-                      )}
-                    </div>
-                    <p className="mt-1.5 truncate text-xs font-semibold">{name}</p>
-                    <div className="mt-1 flex items-center gap-1">
-                      <span className={`badge border-0 px-1.5 py-0.5 text-[10px] ${getGameColor(item)}`}>
-                        {item.estimated_grade || 'Raw'}
-                      </span>
-                      <span className="ml-auto text-[10px] text-cv-muted">${(value / 100).toFixed(2)}</span>
-                    </div>
-                    {copies > 0 && (
-                      <div className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--primary)] text-[10px] font-bold text-white">
-                        {copies}
-                      </div>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* RIGHT PANEL — AI Generator + Stats */}
-        <div className="space-y-4">
-          <div className="glass p-4">
-            <h3 className="mb-3 font-semibold">AI Deck Generator</h3>
-            <p className="mb-3 text-xs text-cv-muted">
-              {FORMAT_RULES[gameId]?.[format] || 'Select a format to see rules.'}
-            </p>
-            <button
-              className="btn-primary w-full"
-              onClick={() => void handleGenerate()}
-              disabled={generating}
-              type="button"
-            >
-              {generating ? (
-                <span className="flex items-center gap-2">
-                  <RefreshCw className="h-4 w-4 animate-spin" /> Generating...
-                </span>
-              ) : (
-                'Generate Deck from Collection'
+                  ))}
+                </div>
               )}
-            </button>
-            {genMessage && (
-              <p className="mt-2 text-xs text-cv-muted">{genMessage}</p>
-            )}
+
+              {customDeck.length > 0 && (
+                <>
+                  <div className="mt-3 grid grid-cols-2 gap-1 text-xs text-cv-muted">
+                    <span>Value: <strong className="text-cv-text">${(deckValue / 100).toFixed(2)}</strong></span>
+                    <span>Avg: <strong className="text-cv-text">${totalCards > 0 ? (deckValue / totalCards / 100).toFixed(2) : '0.00'}</strong></span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button className="btn-primary flex-1 text-xs" onClick={() => void handleSaveDeck()} type="button">
+                      Save Deck
+                    </button>
+                    <button className="btn-secondary text-xs" onClick={exportList} title="Copy to clipboard" type="button">
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                    <button className="btn-ghost text-xs text-cv-danger" onClick={clearDeck} title="Clear deck" type="button">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  {deckMessage && <p className="mt-2 text-xs text-cv-muted">{deckMessage}</p>}
+                </>
+              )}
+            </div>
+
+            {/* AI Generator */}
+            <div className="glass p-4">
+              <h3 className="mb-2 font-semibold text-sm">AI Deck Generator</h3>
+              <p className="mb-3 text-xs text-cv-muted">Auto-build a {selectedFormat} deck from your collection.</p>
+              <button
+                className="btn-primary w-full text-sm"
+                onClick={() => void handleGenerate()}
+                disabled={generating}
+                type="button"
+              >
+                {generating ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <RefreshCw className="h-4 w-4 animate-spin" /> Generating...
+                  </span>
+                ) : 'Generate from Collection'}
+              </button>
+              {!customDeck.length && deckMessage && (
+                <p className="mt-2 text-xs text-cv-muted">{deckMessage}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MASTER SET TAB ── */}
+      {activeTab === 'master-set' && (
+        <div className="space-y-4">
+          {/* Set selector */}
+          <div className="glass p-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex-1 min-w-[200px]">
+                <label className="mb-1 block text-xs text-cv-muted">Select Pokémon Set</label>
+                <select
+                  className="input"
+                  value={selectedSet}
+                  onChange={e => { setSelectedSet(e.target.value); setChecklistFilter('all') }}
+                >
+                  <option value="">— Choose a set —</option>
+                  {(setsData?.sets ?? []).map(s => (
+                    <option key={s.id} value={s.id}>{s.name} ({s.series})</option>
+                  ))}
+                </select>
+              </div>
+              <label className="flex items-center gap-2 text-sm cursor-pointer mt-4">
+                <input
+                  type="checkbox"
+                  checked={showAllSets}
+                  onChange={e => setShowAllSets(e.target.checked)}
+                  className="rounded"
+                />
+                Show all sets
+              </label>
+            </div>
           </div>
 
-          {deckEntries.length > 0 && (
-            <div className="glass p-4">
-              <h3 className="mb-3 font-semibold">Deck Stats</h3>
-              <div className="space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-cv-muted">Cards</span>
-                  <span className="font-semibold">{totalCards} / {game.deckSize}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-cv-muted">Unique Cards</span>
-                  <span className="font-semibold">{deckEntries.length}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-cv-muted">Deck Value</span>
-                  <span className="gradient-text font-bold">${(deckValue / 100).toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-cv-muted">Avg per Card</span>
-                  <span className="font-semibold">
-                    ${totalCards > 0 ? (deckValue / totalCards / 100).toFixed(2) : '0.00'}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-cv-muted">Completion</span>
-                  <span className={`font-semibold ${progressPct === 100 ? 'text-cv-good' : 'text-cv-warn'}`}>
-                    {progressPct.toFixed(0)}%
-                  </span>
-                </div>
-
-                {/* Type breakdown SVG donut */}
-                <div className="pt-2">
-                  <p className="mb-2 text-xs text-cv-muted">Card breakdown</p>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-cv-surface">
+          {selectedSet && (
+            <>
+              {/* Completion bar */}
+              {checklist && (
+                <div className="glass p-4">
+                  <div className="flex items-center gap-4 mb-3">
+                    {setsData?.sets.find(s => s.id === selectedSet)?.images?.symbol && (
+                      <img
+                        src={setsData.sets.find(s => s.id === selectedSet)!.images.symbol}
+                        alt="set symbol"
+                        className="h-8 w-8 object-contain"
+                      />
+                    )}
+                    <div className="flex-1">
+                      <h3 className="font-semibold">{setsData?.sets.find(s => s.id === selectedSet)?.name}</h3>
+                      <p className="text-xs text-cv-muted">{setsData?.sets.find(s => s.id === selectedSet)?.series}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-bold">{checklist.completion_pct}%</p>
+                      <p className="text-xs text-cv-muted">{checklist.owned_count}/{checklist.total_count} cards</p>
+                    </div>
+                  </div>
+                  <div className="h-3 w-full overflow-hidden rounded-full bg-cv-surface">
                     <div
-                      className={`h-full rounded-full transition-all ${progressColor}`}
-                      style={{ width: `${progressPct}%` }}
+                      className="h-full rounded-full bg-cv-good transition-all"
+                      style={{ width: `${checklist.completion_pct}%` }}
                     />
                   </div>
-                  <div className="mt-1 text-right text-xs text-cv-muted">{totalCards}/{game.deckSize} cards</div>
                 </div>
+              )}
+
+              {/* Filter buttons */}
+              <div className="flex gap-2">
+                {(['all', 'owned', 'missing'] as ChecklistFilter[]).map(f => (
+                  <button
+                    key={f}
+                    className={f === checklistFilter ? 'btn-primary text-xs' : 'btn-secondary text-xs'}
+                    onClick={() => setChecklistFilter(f)}
+                    type="button"
+                  >
+                    {f === 'all' ? `All (${checklist?.total_count ?? 0})` :
+                     f === 'owned' ? `Owned (${checklist?.owned_count ?? 0})` :
+                     `Missing (${checklist?.missing_count ?? 0})`}
+                  </button>
+                ))}
               </div>
-            </div>
+
+              {/* Card grid */}
+              {checklistLoading ? (
+                <div className="glass p-8 text-center text-sm text-cv-muted">Loading checklist...</div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
+                  {displayedCards.map(card => (
+                    <div
+                      key={card.id}
+                      className={`glass overflow-hidden rounded-[var(--radius-md)] ${card.owned ? 'ring-1 ring-green-500/50' : 'opacity-60'}`}
+                    >
+                      {card.image ? (
+                        <img
+                          src={card.image}
+                          alt={card.name}
+                          className="w-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="aspect-[2.5/3.5] w-full bg-cv-surface flex items-center justify-center text-cv-muted text-xs">
+                          {card.name}
+                        </div>
+                      )}
+                      <div className="p-1.5">
+                        <p className="truncate text-[10px] font-semibold">{card.name}</p>
+                        <div className="flex items-center justify-between gap-1 mt-0.5">
+                          <span className="text-[9px] text-cv-muted">#{card.number}</span>
+                          {card.owned ? (
+                            <span className="rounded bg-green-500/20 px-1 py-0.5 text-[9px] text-green-300 font-medium">✓ Own</span>
+                          ) : (
+                            <span className="rounded bg-cv-surface px-1 py-0.5 text-[9px] text-cv-muted">Missing</span>
+                          )}
+                        </div>
+                        {card.rarity && (
+                          <p className="text-[9px] text-cv-muted mt-0.5 truncate">{card.rarity}</p>
+                        )}
+                        {card.tcgplayer_price != null && (
+                          <p className="text-[9px] text-cv-muted">${(card.tcgplayer_price).toFixed(2)}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
 
-          <div className="glass p-4">
-            <h3 className="mb-2 font-semibold text-sm">Format Rules</h3>
-            <div className="space-y-1">
-              {FORMATS[gameId].map((f) => (
-                <button
-                  key={f}
-                  className={`w-full rounded-[var(--radius-md)] px-3 py-2 text-left text-xs transition ${
-                    f === format
-                      ? 'bg-[var(--primary)]/20 text-[var(--primary)]'
-                      : 'text-cv-muted hover:bg-cv-surface'
-                  }`}
-                  onClick={() => setFormat(f)}
-                  type="button"
-                >
-                  <span className="font-semibold">{f}</span>
-                  {f === format && (
-                    <p className="mt-0.5 text-[10px] opacity-80">{FORMAT_RULES[gameId]?.[f]}</p>
-                  )}
-                </button>
-              ))}
+          {!selectedSet && (
+            <div className="glass p-12 text-center">
+              <p className="text-cv-muted">Select a Pokémon set above to track your completion.</p>
             </div>
-          </div>
+          )}
         </div>
-      </div>
+      )}
     </div>
   )
 }
