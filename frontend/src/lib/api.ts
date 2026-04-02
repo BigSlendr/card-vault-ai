@@ -236,4 +236,97 @@ export const api = {
   createRelease: (payload: Omit<Release, 'id' | 'created_at'>) =>
     http.post<never, Release>('/api/releases', payload),
   getRelease: (id: number | string) => http.get<never, Release>(`/api/releases/${id}`),
+
+  getCardPricing: (cardId: number | string) =>
+    http.get<never, {
+      card_id: number;
+      tcgplayer: {
+        market: number | null;
+        low: number | null;
+        mid: number | null;
+        high: number | null;
+        url: string | null;
+      } | null;
+      pricecharting: {
+        loose_price_cents: number | null;
+        graded_price_cents: number | null;
+        psa_10_price_cents: number | null;
+        psa_9_price_cents: number | null;
+        url: string | null;
+      } | null;
+      ptcg_set_name?: string;
+      ptcg_series?: string;
+      ptcg_legalities?: Record<string, string>;
+      tcgplayer_url?: string;
+    }>(`/api/pricing/${cardId}`),
+
+  getPokemonSets: (all?: boolean) =>
+    http.get<never, {
+      sets: Array<{
+        id: string;
+        name: string;
+        series: string;
+        printedTotal: number;
+        total: number;
+        releaseDate: string;
+        images: { symbol: string; logo: string };
+      }>;
+    }>(`/api/sets/pokemon${all ? '?all=1' : ''}`),
+
+  getSetChecklist: (setId: string) =>
+    http.get<never, {
+      set_id: string;
+      total_count: number;
+      owned_count: number;
+      missing_count: number;
+      completion_pct: number;
+      cards: Array<{
+        id: string;
+        name: string;
+        number: string;
+        rarity: string;
+        image: string;
+        tcgplayer_price: number | null;
+        owned: boolean;
+        collection_item_id: number | null;
+      }>;
+    }>(`/api/sets/pokemon/${setId}/checklist`),
+
+  getMetaDecks: (game: string) =>
+    http.get<never, {
+      game: string;
+      decks: Array<{
+        name: string;
+        archetype: string;
+        format: string;
+        theme: string;
+        description: string;
+        key_cards: string[];
+        strategy: string;
+      }>;
+    }>(`/api/meta/${game}`),
+
+  analyzeDeck: (payload: { key_cards: string[]; game: string; deck_size: number }) =>
+    http.post<never, {
+      have: CollectionItem[];
+      need: string[];
+      completion_pct: number;
+      have_count: number;
+      need_count: number;
+      total_key_cards: number;
+    }>('/api/deck/analyze', payload),
+
+  saveDeck: (payload: { name: string; game: string; format: string; cards_json: string }) =>
+    http.post<never, { id: number }>('/api/decks', payload),
+
+  listSavedDecks: () =>
+    http.get<never, Array<{
+      id: number;
+      name: string;
+      game: string;
+      format: string | null;
+      archetype: string | null;
+      cards_json: string;
+      created_at: string;
+    }>>('/api/decks'),
 }

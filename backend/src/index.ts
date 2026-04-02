@@ -17,6 +17,9 @@ import { uploadDirect } from './routes/uploads';
 import { confirmIdentification, identifyCollectionItem } from './routes/vision';
 import { handleSheetScan } from './routes/scan';
 import { generateDeck } from './routes/deck';
+import { getCardPricing } from './routes/pricing';
+import { getPokemonSets, getSetChecklist, saveDeck, listDecks } from './routes/sets';
+import { getMetaDecks, analyzeDeckAgainstCollection } from './routes/meta';
 
 function parseId(pathname: string): number | null {
   const id = Number(pathname.split('/').pop());
@@ -201,6 +204,50 @@ export default {
         headers.set('Access-Control-Allow-Origin', 'https://card-vault-ai.pages.dev');
 
         return new Response(object.body, { headers });
+      }
+
+      // Pricing routes
+      if (pathname.startsWith('/api/pricing/')) {
+        const id = parseId(pathname);
+        if (!id) return withCors(badRequest('Invalid card id'), request, env);
+        if (method === 'GET') return withCors(await getCardPricing(env, id), request, env);
+      }
+
+      // Set routes
+      if (method === 'GET' && pathname === '/api/sets/pokemon') {
+        return withCors(await getPokemonSets(env, request), request, env);
+      }
+
+      if (pathname.startsWith('/api/sets/pokemon/') && pathname.endsWith('/checklist')) {
+        const user = await requireAuth(env, request);
+        if (user instanceof Response) return withCors(user, request, env);
+        const setId = pathname.replace('/api/sets/pokemon/', '').replace('/checklist', '');
+        if (!setId) return withCors(badRequest('Invalid set id'), request, env);
+        return withCors(await getSetChecklist(env, setId, user.id), request, env);
+      }
+
+      // Meta routes
+      if (pathname.startsWith('/api/meta/')) {
+        const game = pathname.replace('/api/meta/', '');
+        if (method === 'GET') return withCors(await getMetaDecks(env, game), request, env);
+      }
+
+      // Deck analysis
+      if (pathname === '/api/deck/analyze') {
+        const user = await requireAuth(env, request);
+        if (user instanceof Response) return withCors(user, request, env);
+        if (method === 'POST') return withCors(
+          await analyzeDeckAgainstCollection(env, request, user.id),
+          request, env,
+        );
+      }
+
+      // Saved decks
+      if (pathname === '/api/decks') {
+        const user = await requireAuth(env, request);
+        if (user instanceof Response) return withCors(user, request, env);
+        if (method === 'GET') return withCors(await listDecks(env, user), request, env);
+        if (method === 'POST') return withCors(await saveDeck(env, request, user), request, env);
       }
 
       return withCors(notFound('Route not found'), request, env);

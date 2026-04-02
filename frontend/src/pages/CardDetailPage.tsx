@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink } from 'lucide-react'
 import { api } from '../lib/api'
 import { queryKeys, useCollectionItem, useComps, useGrade, useCompsHistory } from '../lib/hooks'
@@ -118,6 +118,13 @@ export default function CardDetailPage() {
     const pct = ((item.estimated_value_cents - avg7) / avg7) * 100
     return { pct, up: pct >= 0 }
   }, [historyData, item])
+
+  const { data: pricing } = useQuery({
+    queryKey: ['pricing', cardId],
+    queryFn: () => api.getCardPricing(cardId!),
+    enabled: cardId != null,
+    staleTime: 1000 * 60 * 60, // 1 hour
+  })
 
   const gradingMutation = useMutation({
     mutationFn: async () => {
@@ -311,6 +318,89 @@ export default function CardDetailPage() {
           ) : (
             <div className="flex h-32 items-center justify-center text-cv-muted text-sm">
               No price history yet. Refresh comps to populate.
+            </div>
+          )}
+        </article>
+
+        {/* ── Market Prices ── */}
+        <article className="glass p-4">
+          <h2 className="mb-3 text-lg font-semibold">Market Prices</h2>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {/* TCGPlayer */}
+            <div className="rounded-[var(--radius-md)] bg-cv-surface p-3">
+              <p className="text-xs text-cv-muted mb-1">TCGPlayer Market</p>
+              <p className="text-lg font-bold">
+                {pricing?.tcgplayer?.market
+                  ? `$${(pricing.tcgplayer.market / 100).toFixed(2)}`
+                  : '—'}
+              </p>
+              {pricing?.tcgplayer?.low && (
+                <p className="text-xs text-cv-muted">
+                  Low ${(pricing.tcgplayer.low / 100).toFixed(2)}
+                </p>
+              )}
+              {pricing?.tcgplayer_url && (
+                <a
+                  href={pricing.tcgplayer_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 block text-xs text-[var(--primary)] hover:underline"
+                >
+                  View on TCGPlayer →
+                </a>
+              )}
+            </div>
+
+            {/* PriceCharting */}
+            <div className="rounded-[var(--radius-md)] bg-cv-surface p-3">
+              <p className="text-xs text-cv-muted mb-1">PriceCharting</p>
+              <p className="text-lg font-bold">
+                {pricing?.pricecharting?.loose_price_cents
+                  ? `$${(pricing.pricecharting.loose_price_cents / 100).toFixed(2)}`
+                  : '—'}
+              </p>
+              {pricing?.pricecharting?.psa_10_price_cents && (
+                <p className="text-xs text-cv-muted">
+                  PSA 10: ${(pricing.pricecharting.psa_10_price_cents / 100).toFixed(2)}
+                </p>
+              )}
+              {pricing?.pricecharting?.url && (
+                <a
+                  href={pricing.pricecharting.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 block text-xs text-[var(--primary)] hover:underline"
+                >
+                  View on PriceCharting →
+                </a>
+              )}
+            </div>
+
+            {/* eBay Summary */}
+            <div className="rounded-[var(--radius-md)] bg-cv-surface p-3">
+              <p className="text-xs text-cv-muted mb-1">eBay Avg</p>
+              <p className="text-lg font-bold">
+                {comps?.summary?.average_price_cents
+                  ? `$${(comps.summary.average_price_cents / 100).toFixed(2)}`
+                  : '—'}
+              </p>
+              {comps?.summary?.count && (
+                <p className="text-xs text-cv-muted">{comps.summary.count} recent sales</p>
+              )}
+            </div>
+          </div>
+
+          {/* Set info from PTCG */}
+          {pricing?.ptcg_set_name && (
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              <span className="badge">{pricing.ptcg_series}</span>
+              <span className="badge">{pricing.ptcg_set_name}</span>
+              {pricing.ptcg_legalities?.standard === 'Legal' && (
+                <span className="badge badge-success">Standard Legal</span>
+              )}
+              {pricing.ptcg_legalities?.expanded === 'Legal' && (
+                <span className="badge badge-info">Expanded Legal</span>
+              )}
             </div>
           )}
         </article>

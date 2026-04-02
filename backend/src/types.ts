@@ -6,6 +6,7 @@ export interface Env {
   OPENAI_API_KEY:string;
   EBAY_CLIENT_ID?: string;
   EBAY_CLIENT_SECRET?: string;
+  POKEMON_TCG_API_KEY?: string;
 }
 export interface User {
   id: number;
